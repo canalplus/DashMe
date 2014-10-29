@@ -1,0 +1,82 @@
+#!/bin/sh
+
+COMPILER="gccgo"
+TOOLCHAIN=""
+FLAGS="-g -static-libgo"
+PROJECT="DashMe"
+SOURCES="src"
+LIB_PATH="/usr/lib/gcc/x86_64-linux-gnu/4.9/"
+
+print_usage ()
+{
+    echo "Usage : "
+    echo $0" [-h] [-c name] [-t toolchain] [-f flags] [-p name] [-s path] [-l path]"
+    echo "  -h : Display this help"
+    echo "  -c : Name of compiler (default : '"$COMPILER"')"
+    echo "  -t : Prefix for toolchain (default : '"$TOOLCHAIN"')"
+    echo "  -f : Flags used during compilation (default : '"$FLAGS"')"
+    echo "  -p : Name of executable (default : '"$PROJECT"')"
+    echo "  -s : Path to source directory (default : '"$SOURCES"')"
+    echo "  -l : Path to GCC libraries (default : '"$LIB_PATH"')"
+}
+
+verify_tools()
+{
+    for t in $1; do
+        echo -n "* Testing "$t"..."
+        if $t -version > /dev/null 2>&1 || $t -v > /dev/null 2>&1; then
+            echo "Ok"
+        else
+            echo "Fail"
+            exit_error "Tool "$t" cannot be found" 1
+        fi;
+    done;
+}
+
+while getopts :hc:t:f:p:s:l: OPTION
+do
+ case $OPTION in
+     :)
+         echo "$OPTARG require an argument !"
+         exit 1
+         ;;
+     c)
+         COMPILER=$OPTARG
+         ;;
+     t)
+         TOOLCHAIN=$OPTARG"-"
+         ;;
+     f)
+         FLAGS=$OPTARG
+         ;;
+     p)
+         PROJECT=$OPTARG
+         ;;
+     s)
+         SOURCES=$OPTARG
+         ;;
+     l)
+         LIB_PATH=$OPTARG
+         ;;
+     h)
+         print_usage
+         exit 0
+         ;;
+     \?)
+         echo "Unrecognised option: -$OPTARG"
+         print_usage
+         exit 1
+         ;;
+ esac
+done;
+
+verify_tools "make "$TOOLCHAIN$COMPILER
+
+echo "PROJECT = " $PROJECT > Makefile.inc
+echo "GOC = "$TOOLCHAIN$COMPILER >> Makefile.inc
+echo "FLAGS = "$FLAGS >> Makefile.inc
+echo "SOURCES = "$SOURCES >> Makefile.inc
+echo 'OBJS = $(SOURCES)/Utils.go $(SOURCES)/CacheManager.go $(SOURCES)/DASHBuilder.go $(SOURCES)/DashMe.go $(SOURCES)/MP4Parser.go $(SOURCES)/Server.go $(SOURCES)/Track.go' >> Makefile.inc
+echo "LIB_PATH = "$LIB_PATH >> Makefile.inc
+
+echo "Done !"

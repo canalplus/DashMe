@@ -14,14 +14,13 @@ Installing
 ----------
 
 Requirements:
-* Go installed on the machine
-* Go project workspace set-up
+* gccgo and make installed on the machine
 
 ```
-> cd $GOPATH/src/github.com/canalplus
 > git clone git@github.com:canalplus/DashMe.git
-> cd $GOPATH
-> go install github.com/canalplus/DashMe
+> cd DashMe
+> ./configure
+> make
 ```
 
 Usage
