@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"utils"
 	"net/http"
 )
 
@@ -33,7 +34,7 @@ func (s *Server) removeRoute(method string, pattern string) {
 func (s *Server) getRouteHandler(method string, path string, params *map[string]string) (RouteHandler, int) {
 	var i int
 	for i = 0; i < len(s.routes); i++ {
-		if parseURL(s.routes[i].pattern, path, params) {
+		if utils.ParseURL(s.routes[i].pattern, path, params) {
 			break
 		}
 	}

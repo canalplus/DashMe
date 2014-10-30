@@ -3,22 +3,24 @@ package main
 import (
 	"os"
 	"io"
+	"utils"
 	"errors"
+	"parsers"
 	"path/filepath"
 	"fmt"
 )
+
+type Parser interface {
+	Initialise()
+	Probe(reader io.ReadSeeker, isDir bool) int
+	Parse(reader io.ReadSeeker, tracks *[]parsers.Track, isDir bool) error
+}
 
 type DASHBuilder struct {
 	videoDir  string
 	cachedDir string
 	parsers	  []Parser
-	tracks    []Track
-}
-
-type Parser interface {
-	Initialise()
-	Probe(reader io.ReadSeeker, isDir bool) int
-	Parse(reader io.ReadSeeker, tracks *[]Track, isDir bool) error
+	tracks    []parsers.Track
 }
 
 func (b *DASHBuilder) addParser(p Parser) {
@@ -30,7 +32,7 @@ func (b *DASHBuilder) Initialise(videoDir string, cachedDir string) {
 	b.videoDir = videoDir
 	b.cachedDir = cachedDir
 	b.tracks = nil
-	b.addParser(MP4Parser{})
+	b.addParser(parsers.MP4Parser{})
 }
 
 func (b *DASHBuilder) GetPathFromFilename(filename string) (string, bool) {
@@ -52,7 +54,7 @@ func (b *DASHBuilder) GetPathFromFilename(filename string) (string, bool) {
 	if i == len(fileInfos) { return "", false }
 	/* Compute and return path to file */
 	res := filepath.Join(b.videoDir, fileInfos[i].Name())
-	return res, isDirectory(res)
+	return res, utils.IsDirectory(res)
 }
 
 func (b *DASHBuilder) Build(filename string) error {

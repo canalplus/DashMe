@@ -1,8 +1,9 @@
-package main
+package parsers
 
 import (
 	"os"
 	"fmt"
+	"utils"
 	"bytes"
 	"errors"
 	"path/filepath"
@@ -36,8 +37,8 @@ func (t *Track) Print() {
 	fmt.Println("\tmodificationTime : ", t.modificationTime)
 	fmt.Println("\tduration : ", t.duration)
 	fmt.Println("\ttimescale : ", t.timescale)
-	fmt.Println("\twidth : ", t.width)
-	fmt.Println("\theight : ", t.height)
+	fmt.Println("\twidth : ", (t.width >> 16) & 0xFFFF)
+	fmt.Println("\theight : ", (t.height >> 16) & 0xFFFF)
 }
 
 type AtomBuilder func(t Track) ([]byte, error)
@@ -402,9 +403,9 @@ func (t *Track) buildInitChunk(path string) error {
 }
 
 func (t *Track) BuildChunks(count int, path string) error {
-	if !FileExist(path) {
+	if !utils.FileExist(path) {
 		os.MkdirAll(path, os.ModeDir|os.ModePerm)
-	} else if !isDirectory(path) {
+	} else if !utils.IsDirectory(path) {
 		return errors.New("Path '" + path + "' is not a directory")
 	}
 	return t.buildInitChunk(path)

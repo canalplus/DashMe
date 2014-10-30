@@ -2,8 +2,9 @@ package main
 
 import (
 	"os"
-	"path/filepath"
+	"utils"
 	"errors"
+	"path/filepath"
 )
 
 /*
@@ -27,7 +28,7 @@ func (c *CacheManager) BuildAvailables() {
 	fileInfos, err := dir.Readdir(-1)
 	if err != nil { return }
 	for _, fi := range fileInfos {
-		c.availables = append(c.availables, RemoveExtension(fi.Name()))
+		c.availables = append(c.availables, utils.RemoveExtension(fi.Name()))
 	}
 }
 
@@ -39,7 +40,7 @@ func (c *CacheManager) BuildCached() {
 	fileInfos, err := dir.Readdir(-1)
 	if err != nil { return }
 	for _, fi := range fileInfos {
-		c.cached = append(c.cached, RemoveExtension(fi.Name()))
+		c.cached = append(c.cached, utils.RemoveExtension(fi.Name()))
 	}
 }
 
@@ -47,7 +48,7 @@ func (c *CacheManager) Initialise(videoDir string, cachedDir string) {
 	c.videoDir = videoDir
 	c.BuildAvailables()
 	c.cachedDir = cachedDir
-	if (FileExist(cachedDir)) {
+	if (utils.FileExist(cachedDir)) {
 		c.BuildCached()
 	} else {
 		os.MkdirAll(cachedDir, os.ModeDir|os.ModePerm)

@@ -1,4 +1,4 @@
-package main
+package utils
 
 import (
 	"os"
@@ -20,7 +20,7 @@ func RemoveExtension(filename string) string {
 	return filename[0:len(filename)-len(extension)]
 }
 
-func parseURL(pattern string, path string, params *map[string]string) bool {
+func ParseURL(pattern string, path string, params *map[string]string) bool {
 	patternSplit := strings.Split(pattern, "/")
 	pathSplit := strings.Split(path, "/")
 	if len(patternSplit) != len(pathSplit) {
@@ -36,7 +36,7 @@ func parseURL(pattern string, path string, params *map[string]string) bool {
 	return true
 }
 
-func isDirectory(path string) bool {
+func IsDirectory(path string) bool {
 	fi, err := os.Stat(path)
 	if err != nil {
 		return false
@@ -44,7 +44,7 @@ func isDirectory(path string) bool {
 	return fi.Mode().IsDir()
 }
 
-func readAtomHeader(reader io.ReadSeeker, res *int) (string, error) {
+func ReadAtomHeader(reader io.ReadSeeker, res *int) (string, error) {
 	var size int32
 	var tag [4]byte
 	err := binary.Read(reader, binary.BigEndian, &size)
@@ -55,49 +55,48 @@ func readAtomHeader(reader io.ReadSeeker, res *int) (string, error) {
 	return string(tag[:]), nil
 }
 
-
-func currentOffset(reader io.ReadSeeker) (int, error) {
+func CurrentOffset(reader io.ReadSeeker) (int, error) {
 	offset, err := reader.Seek(0, 1)
 	return int(offset), err
 }
 
-func atomReadInt8(reader io.Reader) (int, error) {
+func AtomReadInt8(reader io.Reader) (int, error) {
 	var val uint8
 	err := binary.Read(reader, binary.BigEndian, &val)
 	return int(val), err
 }
 
-func atomReadInt16(reader io.Reader) (int, error) {
+func AtomReadInt16(reader io.Reader) (int, error) {
 	var val uint16
 	err := binary.Read(reader, binary.BigEndian, &val)
 	return int(val), err
 }
 
-func atomReadInt24(reader io.Reader) (int, error) {
+func AtomReadInt24(reader io.Reader) (int, error) {
 	var val [3]byte
 	err := binary.Read(reader, binary.BigEndian, &val)
 	return int((val[0] << 16) | (val[1] << 8) | val[0]), err
 }
 
-func atomReadInt32(reader io.Reader) (int, error) {
+func AtomReadInt32(reader io.Reader) (int, error) {
 	var val uint32
 	err := binary.Read(reader, binary.BigEndian, &val)
 	return int(val), err
 }
 
-func atomReadInt64(reader io.Reader) (int, error) {
+func AtomReadInt64(reader io.Reader) (int, error) {
 	var val uint64
 	err := binary.Read(reader, binary.BigEndian, &val)
 	return int(val), err
 }
 
-func atomReadTag(reader io.Reader) (string, error) {
+func AtomReadTag(reader io.Reader) (string, error) {
 	var val [4]byte
 	err := binary.Read(reader, binary.LittleEndian, &val)
 	return string(val[:]), err
 }
 
-func atomReadBuffer(reader io.Reader, size int) ([]byte, error) {
+func AtomReadBuffer(reader io.Reader, size int) ([]byte, error) {
 	val := make([]byte, size)
 	err := binary.Read(reader, binary.LittleEndian, &val)
 	return val, err

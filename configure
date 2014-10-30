@@ -1,21 +1,24 @@
 #!/bin/sh
 
 COMPILER="gccgo"
+OBJCOPY="objcopy"
 TOOLCHAIN=""
 FLAGS="-g -static-libgo"
 PROJECT="DashMe"
 SOURCES="src"
 LIB_PATH="/usr/lib/gcc/x86_64-linux-gnu/4.9/"
+PARSERS="MP4Parser"
 
 print_usage ()
 {
     echo "Usage : "
-    echo $0" [-h] [-c name] [-t toolchain] [-f flags] [-p name] [-s path] [-l path]"
+    echo $0" [-h] [-c name] [-t toolchain] [-f flags] [-p parsers] [-n name] [-s path] [-l path]"
     echo "  -h : Display this help"
     echo "  -c : Name of compiler (default : '"$COMPILER"')"
     echo "  -t : Prefix for toolchain (default : '"$TOOLCHAIN"')"
     echo "  -f : Flags used during compilation (default : '"$FLAGS"')"
-    echo "  -p : Name of executable (default : '"$PROJECT"')"
+    echo "  -p : Comma separated list of parsers to build (default : '"$PARSERS"')"
+    echo "  -n : Name of executable (default : '"$PROJECT"')"
     echo "  -s : Path to source directory (default : '"$SOURCES"')"
     echo "  -l : Path to GCC libraries (default : '"$LIB_PATH"')"
 }
@@ -44,12 +47,15 @@ do
          COMPILER=$OPTARG
          ;;
      t)
-         TOOLCHAIN=$OPTARG"-"
+         TOOLCHAIN=$OPTARG
          ;;
      f)
          FLAGS=$OPTARG
          ;;
      p)
+         PARSERS=$OPTARG
+         ;;
+     n)
          PROJECT=$OPTARG
          ;;
      s)
@@ -72,11 +78,22 @@ done;
 
 verify_tools "make "$TOOLCHAIN$COMPILER
 
+OLD_IFS=$IFS
+IFS=","
+PARSER_SOURCE='$(SOURCES)/parser/Track.go'
+for parser in $PARSERS; do
+    PARSER_SOURCE=$PARSER_SOURCE" "'$(SOURCES)/parser/'$parser".go"
+done
+IFS=$OLD_IFS
+
 echo "PROJECT = " $PROJECT > Makefile.inc
 echo "GOC = "$TOOLCHAIN$COMPILER >> Makefile.inc
+echo "OBJCOPY = "$TOOLCHAIN$OBJCOPY >> Makefile.inc
 echo "FLAGS = "$FLAGS >> Makefile.inc
 echo "SOURCES = "$SOURCES >> Makefile.inc
-echo 'OBJS = $(SOURCES)/Utils.go $(SOURCES)/CacheManager.go $(SOURCES)/DASHBuilder.go $(SOURCES)/DashMe.go $(SOURCES)/MP4Parser.go $(SOURCES)/Server.go $(SOURCES)/Track.go' >> Makefile.inc
+echo 'MAIN_SOURCES = $(SOURCES)/main/CacheManager.go $(SOURCES)/main/DASHBuilder.go $(SOURCES)/main/DashMe.go $(SOURCES)/main/Server.go' >> Makefile.inc
+echo 'UTILS_SOURCES = $(SOURCES)/utils/Utils.go' >> Makefile.inc
+echo 'PARSER_SOURCES = $(SOURCES)/parser/Track.go $(SOURCES)/parser/MP4Parser.go' >> Makefile.inc
 echo "LIB_PATH = "$LIB_PATH >> Makefile.inc
 
 echo "Done !"
