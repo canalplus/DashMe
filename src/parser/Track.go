@@ -10,12 +10,24 @@ import (
 	"encoding/binary"
 )
 
+/*
+  Sample flags :
+    -> keyframe = 02400040
+    -> Other = 014100C0
+*/
 type Sample struct {
 	pts      int
 	dts      int
 	duration int
-	isKey    bool
+	flags    int
 	data     []byte
+}
+
+type AtomBuilder func(t Track) ([]byte, error)
+
+type Builder struct {
+	builders map[string]AtomBuilder
+	samples  []Sample
 }
 
 type Track struct {
@@ -28,6 +40,7 @@ type Track struct {
 	height           int
 	extradata        []byte
 	samples          []Sample
+	builder          Builder
 }
 
 func (t *Track) Print() {
@@ -40,10 +53,6 @@ func (t *Track) Print() {
 	fmt.Println("\twidth : ", (t.width >> 16) & 0xFFFF)
 	fmt.Println("\theight : ", (t.height >> 16) & 0xFFFF)
 }
-
-type AtomBuilder func(t Track) ([]byte, error)
-
-var builders map[string]AtomBuilder
 
 /* Atom generic building functions */
 func buildAtom(tag string, content []byte) ([]byte, error) {
@@ -61,21 +70,7 @@ func buildEmptyAtom(tag string, size int) ([]byte, error) {
 	return buildAtom(tag, make([]byte, size))
 }
 
-func buildAtomFromMap(t Track, atoms ...string) ([]byte, error) {
-	var buf []byte
-	var tmp []byte
-	var err error
-
-	for _, atom := range atoms {
-		tmp, err = builders[atom](t)
-		if err != nil { return nil, err }
-		buf = append(buf, tmp...)
-	}
-	return buf, nil
-}
-
 /* Atom specific building functions */
-
 func buildSTTS(t Track) ([]byte, error) {
 	return buildEmptyAtom("stts", 16)
 }
@@ -97,47 +92,63 @@ func buildSTSS(t Track) ([]byte, error) {
 }
 
 func buildSTBL(t Track) ([]byte, error) {
-	b, err := buildAtomFromMap(t, "stsd", "stts", "stsc", "stco", "stsz", "stss")
+	b, err := t.build("stsd", "stts", "stsc", "stco", "stsz", "stss")
 	if err != nil { return nil, err }
 	return buildAtom("stbl", b)
 }
 
 func buildMINF(t Track) ([]byte, error) {
-	b, err := buildAtomFromMap(t, "dinf", "stbl", "vmhd")
+	b, err := t.build("dinf", "stbl", "vmhd")
 	if err != nil { return nil, err }
 	return buildAtom("minf", b)
 }
 
 func buildMDIA(t Track) ([]byte, error) {
-	b, err := buildAtomFromMap(t, "mdhd", "hdlr", "minf")
+	b, err := t.build("mdhd", "hdlr", "minf")
 	if err != nil { return nil, err }
 	return buildAtom("mdia", b)
 }
 
 func buildTRAK(t Track) ([]byte, error) {
-	b, err := buildAtomFromMap(t, "tkhd", "mdia")
+	b, err := t.build("tkhd", "mdia")
 	if err != nil { return nil, err }
 	return buildAtom("trak", b)
 }
 
 func buildMVEX(t Track) ([]byte, error) {
-	b, err := buildAtomFromMap(t, "trex")
+	b, err := t.build("trex")
 	if err != nil { return nil, err }
 	return buildAtom("mvex", b)
 }
 
 func buildMOOV(t Track) ([]byte, error) {
-	b, err := buildAtomFromMap(t, "mvhd", "mvex", "trak")
+	b, err := t.build("mvhd", "mvex", "trak")
 	if err != nil { return nil, err }
 	return buildAtom("moov", b)
 }
 
 func buildDINF(t Track) ([]byte, error) {
-	b, err := buildAtomFromMap(t, "dref")
+	b, err := t.build("dref")
 	if err != nil {
 		return nil, err
 	}
 	return buildAtom("dinf", b)
+}
+
+func buildMOOF(t Track) ([]byte, error) {
+	b, err := t.build("mfhd", "traf")
+	if err != nil {
+		return nil, err
+	}
+	return buildAtom("moof", b)
+}
+
+func buildTRAF(t Track) ([]byte, error) {
+	b, err := t.build("tfhd", "tfdt", "trun")
+	if err != nil {
+		return nil, err
+	}
+	return buildAtom("moof", b)
 }
 
 func buildSTSD(t Track) ([]byte, error) {
@@ -350,46 +361,250 @@ func buildVMHD(t Track) ([]byte, error) {
 	})
 }
 
-/* Track building core functions */
+func buildMFHD(t Track) ([]byte, error) {
+	return buildAtom("mfhd", []byte{
+		/* Flags + version */
+		0x0, 0x0, 0x0, 0x0,
+		/* Sequence number */
+		0x0, 0x0, 0x0, 0x1,
+	})
+}
 
-func InitialiseTrackBuilders() {
-	builders = make(map[string]AtomBuilder)
-	builders["ftyp"] = buildFTYP /**/
-	builders["moov"] = buildMOOV /**/
-	builders["mvhd"] = buildMVHD /**/
-	builders["mvex"] = buildMVEX /**/
-	builders["trex"] = buildTREX /**/
-	builders["trak"] = buildTRAK /**/
-	builders["tkhd"] = buildTKHD /**/
-	builders["mdia"] = buildMDIA /**/
-	builders["mdhd"] = buildMDHD /**/
-	builders["hdlr"] = buildHDLR /**/
-	builders["minf"] = buildMINF /**/
-	builders["dinf"] = buildDINF /**/
-	builders["dref"] = buildDREF /**/
-	builders["stbl"] = buildSTBL /**/
-	builders["vmhd"] = buildVMHD /**/
-	builders["stsd"] = buildSTSD /**/
-	builders["stts"] = buildSTTS /**/
-	builders["stsc"] = buildSTSC /**/
-	builders["stco"] = buildSTCO /**/
-	builders["stsz"] = buildSTSZ /**/
-	builders["stss"] = buildSTSS /**/
+func buildTFDT(t Track) ([]byte, error) {
+	return buildAtom("tfdt", []byte{
+		/* Flags + version */
+		0x0, 0x0, 0x0, 0x0,
+		/* Base media decode time */
+		0x0, 0x0, 0x0, 0x0,
+	})
+}
+
+func buildFREE(t Track) ([]byte, error) {
+	return buildAtom("free", []byte("DashMe"))
+}
+
+func buildSIDX(t Track) ([]byte, error) {
+	size := t.builder.computeMOOFSize()
+	size += t.builder.computeMDATSize()
+	duration := t.builder.computeChunkDuration()
+	b := []byte{
+		/* Flags + version */
+		0x0, 0x0, 0x0, 0x0,
+		/* Reference id */
+		0x0, 0x0, 0x0, 0x1,
+		/* Timescale */
+		byte((t.timescale >> 24) & 0xFF),
+		byte((t.timescale >> 16) & 0xFF),
+		byte((t.timescale >> 8) & 0xFF),
+		byte((t.timescale) & 0xFF),
+		/* Earliest presentation time */
+		byte((t.builder.samples[0].pts >> 24) & 0xFF),
+		byte((t.builder.samples[0].pts >> 16) & 0xFF),
+		byte((t.builder.samples[0].pts >> 8) & 0xFF),
+		byte((t.builder.samples[0].pts) & 0xFF),
+		/* Reserved */
+		0x0, 0x0,
+		/* Reference count = 1 */
+		0x0, 0x1,
+		/* Reference type + reference size*/
+		byte((size >> 24) & 0xFF),
+		byte((size >> 16) & 0xFF),
+		byte((size >> 8) & 0xFF),
+		byte((size) & 0xFF),
+		/* Subsegment duration */
+		byte((duration >> 24) & 0xFF),
+		byte((duration >> 16) & 0xFF),
+		byte((duration >> 8) & 0xFF),
+		byte((duration) & 0xFF),
+		/* Starts with SAP + SAP type + SAP delta time  */
+		0x90, 0x0, 0x0, 0x0,
+	}
+	return buildAtom("sidx", b)
+}
+
+func buildTFHD(t Track) ([]byte, error) {
+	return buildAtom("tfhd", []byte{
+		/* Flags + version */
+		0x0, 0x2, 0x0, 0x0,
+		/* Track id */
+		0x0, 0x0, 0x0, 0x1,
+	})
+}
+
+func buildSTYP(t Track) ([]byte, error) {
+	return buildAtom("styp", []byte{
+		/* Major brand */
+		0x64, 0x61, 0x73, 0x68,
+		/* Minor version */
+		0x0, 0x0, 0x0, 0x0,
+		/* Compatibility */
+		0x69, 0x73, 0x6f, 0x36, 0x61, 0x76, 0x63, 0x31, 0x6d, 0x70,
+		0x34, 0x31,
+	})
+}
+
+func buildMDAT(t Track) ([]byte, error) {
+	var b []byte
+	for _, sample := range t.builder.samples {
+		b = append(b, sample.data...)
+	}
+	return buildAtom("mdat", b)
+}
+
+func buildTRUN(t Track) ([]byte, error) {
+	var b []byte
+	var size int
+	var composition int
+	for _, sample := range t.builder.samples {
+		size = len(sample.data)
+		composition = sample.pts - sample.dts
+		b = append(b, []byte{
+			/* Sample duration */
+			byte((sample.duration >> 24) & 0xFF),
+			byte((sample.duration >> 16) & 0xFF),
+			byte((sample.duration >> 8) & 0xFF),
+			byte((sample.duration) & 0xFF),
+			/* Sample size */
+			byte((size >> 24) & 0xFF),
+			byte((size >> 16) & 0xFF),
+			byte((size >> 8) & 0xFF),
+			byte((size) & 0xFF),
+			/* Sample duration */
+			byte((sample.flags >> 24) & 0xFF),
+			byte((sample.flags >> 16) & 0xFF),
+			byte((sample.flags >> 8) & 0xFF),
+			byte((sample.flags) & 0xFF),
+			/* Sample composition offset */
+			byte((composition >> 24) & 0xFF),
+			byte((composition >> 16) & 0xFF),
+			byte((composition >> 8) & 0xFF),
+			byte((composition) & 0xFF),
+		}...)
+	}
+	count := len(t.builder.samples)
+	offset := t.builder.computeMOOFSize() + 8
+	return buildAtom("trun", append([]byte{
+		/* Flags + version */
+		0x1, 0x0, 0xF, 0x1,
+		/* Sample count */
+		byte((count >> 24) & 0xFF),
+		byte((count >> 16) & 0xFF),
+		byte((count >> 8) & 0xFF),
+		byte((count) & 0xFF),
+		/* Data Offset */
+		byte((offset >> 24) & 0xFF),
+		byte((offset >> 16) & 0xFF),
+		byte((offset >> 8) & 0xFF),
+		byte((offset) & 0xFF),
+	}, b...))
+}
+
+/* Builder structure methods */
+func (b *Builder) Initialise() {
+	b.builders = make(map[string]AtomBuilder)
+	b.builders["ftyp"] = buildFTYP /**/
+	b.builders["free"] = buildFREE /**/
+	b.builders["moov"] = buildMOOV /**/
+	b.builders["mvhd"] = buildMVHD /**/
+	b.builders["mvex"] = buildMVEX /**/
+	b.builders["trex"] = buildTREX /**/
+	b.builders["trak"] = buildTRAK /**/
+	b.builders["tkhd"] = buildTKHD /**/
+	b.builders["mdia"] = buildMDIA /**/
+	b.builders["mdhd"] = buildMDHD /**/
+	b.builders["hdlr"] = buildHDLR /**/
+	b.builders["minf"] = buildMINF /**/
+	b.builders["dinf"] = buildDINF /**/
+	b.builders["dref"] = buildDREF /**/
+	b.builders["stbl"] = buildSTBL /**/
+	b.builders["vmhd"] = buildVMHD /**/
+	b.builders["stsd"] = buildSTSD /**/
+	b.builders["stts"] = buildSTTS /**/
+	b.builders["stsc"] = buildSTSC /**/
+	b.builders["stco"] = buildSTCO /**/
+	b.builders["stsz"] = buildSTSZ /**/
+	b.builders["stss"] = buildSTSS /**/
+	b.builders["styp"] = buildSTYP /**/
+	b.builders["sidx"] = buildSIDX /**/
+	b.builders["moof"] = buildMOOF /**/
+	b.builders["mfhd"] = buildMFHD /**/
+	b.builders["traf"] = buildTRAF /**/
+	b.builders["tfhd"] = buildTFHD /**/
+	b.builders["tfdt"] = buildTFDT /**/
+	b.builders["trun"] = buildTRUN /**/
+	b.builders["mdat"] = buildMDAT /**/
+}
+
+func (b Builder) build(t Track, atoms ...string) ([]byte, error) {
+	var buf []byte
+	var tmp []byte
+	var err error
+
+	for _, atom := range atoms {
+		tmp, err = b.builders[atom](t)
+		if err != nil { return nil, err }
+		buf = append(buf, tmp...)
+	}
+	return buf, nil
+}
+
+func (b Builder) computeMOOFSize() int {
+	return 16 + /* MFHD size */
+		8 + /* TRAF header size */
+		16 + /* TFHD size*/
+		16 + /* TFDT size */
+		16 + 16 * len(b.samples) + /* TRUN size */
+		8 /* MOOF header size */
+}
+
+func (b Builder) computeMDATSize() int {
+	acc := 0
+	for _, sample := range b.samples {
+		acc += len(sample.data)
+	}
+	return acc + 8
+}
+
+func (b Builder) computeChunkDuration() int {
+	duration := 0
+	for _, sample := range b.samples {
+		duration += sample.duration
+	}
+	return duration
+}
+
+/* Track structure methods */
+func (t *Track) build(atoms ...string) ([]byte, error) {
+	return t.builder.build(*t, atoms...)
 }
 
 func (t *Track) buildInitChunk(path string) error {
-	var filename string
-	if (t.isAudio) {
-		filename = "init_audio.mp4"
-	} else {
-		filename = "init_video.mp4"
-	}
-	b, err := buildAtomFromMap(*t, "ftyp", "moov")
+	b, err := t.build("ftyp", "free", "moov")
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Generation done in %q\n", filepath.Join(path, filename))
-	f, err := os.OpenFile(filepath.Join(path, filename), os.O_WRONLY|os.O_CREATE, os.ModePerm)
+	fmt.Printf("Generation done in %q\n", path)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, os.ModePerm)
+	if err != nil {
+		fmt.Printf("Error while opening : " + err.Error() + "\n")
+		return err
+	}
+	defer f.Close()
+	_, err = f.Write(b)
+	if err != nil {
+		fmt.Printf("Error while writing : " + err.Error() + "\n")
+	}
+	return err
+}
+
+func (t *Track) buildSampleChunk(samples []Sample, path string) error {
+	t.builder.samples = samples
+	b, err := t.build("styp", "free", "sidx", "moof", "mdat")
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Generation done in %q\n", path)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, os.ModePerm)
 	if err != nil {
 		fmt.Printf("Error while opening : " + err.Error() + "\n")
 		return err
@@ -403,10 +618,34 @@ func (t *Track) buildInitChunk(path string) error {
 }
 
 func (t *Track) BuildChunks(count int, path string) error {
+	var max int
+	var filename string
+	var typename string
+	if (t.isAudio) {
+		typename = "audio"
+	} else {
+		typename = "video"
+	}
+	t.builder = Builder{}
+	t.builder.Initialise()
 	if !utils.FileExist(path) {
 		os.MkdirAll(path, os.ModeDir|os.ModePerm)
 	} else if !utils.IsDirectory(path) {
 		return errors.New("Path '" + path + "' is not a directory")
 	}
-	return t.buildInitChunk(path)
+	err := t.buildInitChunk(filepath.Join(path, "init_" + typename + ".mp4"))
+	if err != nil { return err }
+	for i := 0; i < len(t.samples); i += count {
+		if i + count >= len(t.samples) {
+			max = len(t.samples) - 1
+		} else {
+			max = i + count
+		}
+		filename = "chunk_" + typename + string(i / count) + ".mp4"
+		err = t.buildSampleChunk(t.samples[i:max], filepath.Join(path, filename))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

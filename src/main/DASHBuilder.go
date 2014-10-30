@@ -7,7 +7,6 @@ import (
 	"errors"
 	"parsers"
 	"path/filepath"
-	"fmt"
 )
 
 type Parser interface {
@@ -89,7 +88,6 @@ func (b *DASHBuilder) Build(filename string) error {
 	/* Parse file and recover tracks */
 	err = parser.Parse(f, &(b.tracks), isDir)
 	if err != nil { return err }
-	fmt.Println(b.tracks)
 	for _, track := range b.tracks {
 		track.BuildChunks(50, filepath.Join(b.cachedDir, filename))
 	}

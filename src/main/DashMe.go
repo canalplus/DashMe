@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"flag"
-	"parsers"
 	"net/http"
 	"encoding/json"
 )
@@ -26,7 +25,6 @@ func main() {
 	if *videoDir == "" { *videoDir = DEFAULT_VIDEO_DIR }
 	if *cachedDir == "" { *cachedDir = DEFAULT_CACHED_DIR }
 	/* Initialising data structures */
-	parsers.InitialiseTrackBuilders()
 	cache.Initialise(*videoDir, *cachedDir)
 	/* Adding /manifest route */
 	s.addRoute("GET", "/manifest", func (w http.ResponseWriter, r *http.Request, params map[string]string) {

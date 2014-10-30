@@ -96,4 +96,4 @@ echo 'UTILS_SOURCES = $(SOURCES)/utils/Utils.go' >> Makefile.inc
 echo 'PARSER_SOURCES = $(SOURCES)/parser/Track.go $(SOURCES)/parser/MP4Parser.go' >> Makefile.inc
 echo "LIB_PATH = "$LIB_PATH >> Makefile.inc
 
-echo "Done !"
+echo "Configure done, ready to build !"
