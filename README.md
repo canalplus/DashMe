@@ -6,15 +6,26 @@ DashMe is a frontend for DASH content generated, if necessary, on the fly from a
 Supported Formats
 -----------------
 
-* Classic MP4
+Any format supported by FFMPEG is supported by DashMe as FFMPEG is used for parsing and demuxing.
+The only requirement is that the codec used is H264.
+
+We can however cite some format :
+* MP4/MOV
+* AVI
+* MKV
 * SmoothStreaming
 * DASH
+* ...
 
 Installing
 ----------
 
 Requirements:
-* gccgo and make installed on the machine
+* GCCGO installed
+* make installed
+* gcc installed
+* go installed (for cgo)
+* FFMPEG (or LibAV) only for libavutil and libavformat
 
 ```
 > git clone git@github.com:canalplus/DashMe.git
