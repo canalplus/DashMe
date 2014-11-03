@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"encoding/binary"
 	"strings"
+	"fmt"
+	"bytes"
 )
 
 func FileExist(filename string) bool {
@@ -50,6 +52,7 @@ func ReadAtomHeader(reader io.ReadSeeker, res *int) (string, error) {
 	err := binary.Read(reader, binary.BigEndian, &size)
 	if err != nil { return "", err }
 	err = binary.Read(reader, binary.LittleEndian, &tag)
+	fmt.Printf("Tag read : %q\n", tag)
 	if err != nil { return "", err }
 	*res = int(size)
 	return string(tag[:]), nil
@@ -100,4 +103,19 @@ func AtomReadBuffer(reader io.Reader, size int) ([]byte, error) {
 	val := make([]byte, size)
 	err := binary.Read(reader, binary.LittleEndian, &val)
 	return val, err
+}
+
+func BuildAtom(tag string, content []byte) ([]byte, error) {
+	var b bytes.Buffer
+	err := binary.Write(&b, binary.BigEndian, int32(len(content) + 8))
+	if err != nil { return nil, err }
+	err = binary.Write(&b, binary.LittleEndian, []byte(tag))
+	if err != nil { return nil, err }
+	err = binary.Write(&b, binary.BigEndian, content)
+	if err != nil { return nil, err }
+	return b.Bytes(), nil
+}
+
+func BuildEmptyAtom(tag string, size int) ([]byte, error) {
+	return BuildAtom(tag, make([]byte, size))
 }

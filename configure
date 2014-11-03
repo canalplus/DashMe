@@ -1,37 +1,54 @@
 #!/bin/sh
 
 COMPILER="gccgo"
+CGO="go tool cgo"
 OBJCOPY="objcopy"
 TOOLCHAIN=""
 FLAGS="-g -static-libgo"
 PROJECT="DashMe"
 SOURCES="src"
 LIB_PATH="/usr/lib/gcc/x86_64-linux-gnu/4.9/"
-PARSERS="MP4Parser"
+INTEROPDIR=".obj"
 
 print_usage ()
 {
     echo "Usage : "
-    echo $0" [-h] [-c name] [-t toolchain] [-f flags] [-p parsers] [-n name] [-s path] [-l path]"
+    echo $0" [-h] [-c name] [-t toolchain] [-f flags] [-p parsers] [-n name] [-s path] [-l path] [-d directory]"
     echo "  -h : Display this help"
     echo "  -c : Name of compiler (default : '"$COMPILER"')"
+    echo "  -g : cgo command (default : '"$CGO"')"
     echo "  -t : Prefix for toolchain (default : '"$TOOLCHAIN"')"
     echo "  -f : Flags used during compilation (default : '"$FLAGS"')"
-    echo "  -p : Comma separated list of parsers to build (default : '"$PARSERS"')"
     echo "  -n : Name of executable (default : '"$PROJECT"')"
     echo "  -s : Path to source directory (default : '"$SOURCES"')"
     echo "  -l : Path to GCC libraries (default : '"$LIB_PATH"')"
+    echo "  -d : Name of directory for GO/C interoperability (default : '"$INTEROPDIR"')"
 }
 
 verify_tools()
 {
     for t in $1; do
-        echo -n "* Testing "$t"..."
+        echo -n "* Testing tool "$t"..."
         if $t -version > /dev/null 2>&1 || $t -v > /dev/null 2>&1; then
             echo "Ok"
         else
             echo "Fail"
-            exit_error "Tool "$t" cannot be found" 1
+            echo "Tool "$t" cannot be found"
+            exit 1
+        fi;
+    done;
+}
+
+verify_packages()
+{
+    for p in $1; do
+        echo -n "* Testing package "$p"..."
+        if pkg-config --modversion $1 > /dev/null 2>&1; then
+            echo "Ok"
+        else
+            echo "Fail"
+            echo "Package "$p" cannot be found"
+            exit 1
         fi;
     done;
 }
@@ -52,9 +69,6 @@ do
      f)
          FLAGS=$OPTARG
          ;;
-     p)
-         PARSERS=$OPTARG
-         ;;
      n)
          PROJECT=$OPTARG
          ;;
@@ -63,6 +77,12 @@ do
          ;;
      l)
          LIB_PATH=$OPTARG
+         ;;
+     d)
+         INTEROPDIR=$OPTARG
+         ;;
+     g)
+         CGO=$OPTARG
          ;;
      h)
          print_usage
@@ -76,7 +96,8 @@ do
  esac
 done;
 
-verify_tools "make "$TOOLCHAIN$COMPILER
+verify_tools "make "$TOOLCHAIN$COMPILER" "$TOOLCHAIN"gcc"
+verify_packages "libavformat libavutil"
 
 OLD_IFS=$IFS
 IFS=","
@@ -86,14 +107,22 @@ for parser in $PARSERS; do
 done
 IFS=$OLD_IFS
 
+if [ ! -d $INTEROPDIR ]; then
+    mkdir $INTEROPDIR
+fi
+
 echo "PROJECT = " $PROJECT > Makefile.inc
 echo "GOC = "$TOOLCHAIN$COMPILER >> Makefile.inc
+echo "CC = "$TOOLCHAIN"gcc" >> Makefile.inc
+echo "CGO = "$CGO >> Makefile.inc
 echo "OBJCOPY = "$TOOLCHAIN$OBJCOPY >> Makefile.inc
 echo "FLAGS = "$FLAGS >> Makefile.inc
 echo "SOURCES = "$SOURCES >> Makefile.inc
 echo 'MAIN_SOURCES = $(SOURCES)/main/CacheManager.go $(SOURCES)/main/DASHBuilder.go $(SOURCES)/main/DashMe.go $(SOURCES)/main/Server.go' >> Makefile.inc
 echo 'UTILS_SOURCES = $(SOURCES)/utils/Utils.go' >> Makefile.inc
-echo 'PARSER_SOURCES = $(SOURCES)/parser/Track.go $(SOURCES)/parser/MP4Parser.go' >> Makefile.inc
+echo 'PARSER_SOURCES = $(SOURCES)/parser/Track.go' >> Makefile.inc
+echo 'FFMPEG_SOURCES = $(SOURCES)/parser/ffmpeg.go' >> Makefile.inc
 echo "LIB_PATH = "$LIB_PATH >> Makefile.inc
+echo "INTEROPDIR = "$INTEROPDIR >> Makefile.inc
 
 echo "Configure done, ready to build !"

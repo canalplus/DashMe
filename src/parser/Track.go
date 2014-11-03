@@ -1,33 +1,29 @@
-package parsers
+package parser
 
 import (
 	"os"
 	"fmt"
 	"utils"
-	"bytes"
 	"errors"
+	"unsafe"
+	"strconv"
 	"path/filepath"
-	"encoding/binary"
 )
-
-/*
-  Sample flags :
-    -> keyframe = 02400040
-    -> Other = 014100C0
-*/
-type Sample struct {
-	pts      int
-	dts      int
-	duration int
-	flags    int
-	data     []byte
-}
 
 type AtomBuilder func(t Track) ([]byte, error)
 
 type Builder struct {
 	builders map[string]AtomBuilder
 	samples  []Sample
+}
+
+type Sample struct {
+	pts      int
+	dts      int
+	duration int
+	keyFrame bool
+	data	 []byte
+	dataPtr  unsafe.Pointer
 }
 
 type Track struct {
@@ -38,6 +34,9 @@ type Track struct {
 	timescale        int
 	width            int
 	height           int
+	sampleRate       int
+	bitsPerSample    int
+	colorTableId     int
 	extradata        []byte
 	samples          []Sample
 	builder          Builder
@@ -50,117 +49,208 @@ func (t *Track) Print() {
 	fmt.Println("\tmodificationTime : ", t.modificationTime)
 	fmt.Println("\tduration : ", t.duration)
 	fmt.Println("\ttimescale : ", t.timescale)
-	fmt.Println("\twidth : ", (t.width >> 16) & 0xFFFF)
-	fmt.Println("\theight : ", (t.height >> 16) & 0xFFFF)
+	fmt.Println("\twidth : ", t.width)
+	fmt.Println("\theight : ", t.height)
 }
 
 /* Atom generic building functions */
-func buildAtom(tag string, content []byte) ([]byte, error) {
-	var b bytes.Buffer
-	err := binary.Write(&b, binary.BigEndian, int32(len(content) + 8))
-	if err != nil { return nil, err }
-	err = binary.Write(&b, binary.LittleEndian, []byte(tag))
-	if err != nil { return nil, err }
-	err = binary.Write(&b, binary.BigEndian, content)
-	if err != nil { return nil, err }
-	return b.Bytes(), nil
-}
-
-func buildEmptyAtom(tag string, size int) ([]byte, error) {
-	return buildAtom(tag, make([]byte, size))
-}
 
 /* Atom specific building functions */
 func buildSTTS(t Track) ([]byte, error) {
-	return buildEmptyAtom("stts", 16)
+	return utils.BuildEmptyAtom("stts", 16)
 }
 
 func buildSTSC(t Track) ([]byte, error) {
-	return buildEmptyAtom("stsc", 16)
+	return utils.BuildEmptyAtom("stsc", 16)
 }
 
 func buildSTCO(t Track) ([]byte, error) {
-	return buildEmptyAtom("stco", 16)
+	return utils.BuildEmptyAtom("stco", 16)
 }
 
 func buildSTSZ(t Track) ([]byte, error) {
-	return buildEmptyAtom("stsz", 20)
+	return utils.BuildEmptyAtom("stsz", 20)
 }
 
 func buildSTSS(t Track) ([]byte, error) {
-	return buildEmptyAtom("stss", 16)
+	return utils.BuildEmptyAtom("stss", 16)
 }
 
 func buildSTBL(t Track) ([]byte, error) {
-	b, err := t.build("stsd", "stts", "stsc", "stco", "stsz", "stss")
+	b, err := t.buildAtoms("stsd", "stts", "stsc", "stco", "stsz", "stss")
 	if err != nil { return nil, err }
-	return buildAtom("stbl", b)
+	return utils.BuildAtom("stbl", b)
 }
 
 func buildMINF(t Track) ([]byte, error) {
-	b, err := t.build("dinf", "stbl", "vmhd")
+	var b []byte
+	var err error
+	if t.isAudio {
+		b, err = t.buildAtoms("dinf", "stbl", "smhd")
+	} else {
+		b, err = t.buildAtoms("dinf", "stbl", "vmhd")
+	}
 	if err != nil { return nil, err }
-	return buildAtom("minf", b)
+	return utils.BuildAtom("minf", b)
 }
 
 func buildMDIA(t Track) ([]byte, error) {
-	b, err := t.build("mdhd", "hdlr", "minf")
+	b, err := t.buildAtoms("mdhd", "hdlr", "minf")
 	if err != nil { return nil, err }
-	return buildAtom("mdia", b)
+	return utils.BuildAtom("mdia", b)
 }
 
 func buildTRAK(t Track) ([]byte, error) {
-	b, err := t.build("tkhd", "mdia")
+	b, err := t.buildAtoms("tkhd", "mdia")
 	if err != nil { return nil, err }
-	return buildAtom("trak", b)
+	return utils.BuildAtom("trak", b)
 }
 
 func buildMVEX(t Track) ([]byte, error) {
-	b, err := t.build("trex")
+	b, err := t.buildAtoms("trex")
 	if err != nil { return nil, err }
-	return buildAtom("mvex", b)
+	return utils.BuildAtom("mvex", b)
 }
 
 func buildMOOV(t Track) ([]byte, error) {
-	b, err := t.build("mvhd", "mvex", "trak")
+	b, err := t.buildAtoms("mvhd", "mvex", "trak")
 	if err != nil { return nil, err }
-	return buildAtom("moov", b)
+	return utils.BuildAtom("moov", b)
 }
 
 func buildDINF(t Track) ([]byte, error) {
-	b, err := t.build("dref")
+	b, err := t.buildAtoms("dref")
 	if err != nil {
 		return nil, err
 	}
-	return buildAtom("dinf", b)
+	return utils.BuildAtom("dinf", b)
 }
 
 func buildMOOF(t Track) ([]byte, error) {
-	b, err := t.build("mfhd", "traf")
+	b, err := t.buildAtoms("mfhd", "traf")
 	if err != nil {
 		return nil, err
 	}
-	return buildAtom("moof", b)
+	return utils.BuildAtom("moof", b)
 }
 
 func buildTRAF(t Track) ([]byte, error) {
-	b, err := t.build("tfhd", "tfdt", "trun")
+	b, err := t.buildAtoms("tfhd", "tfdt", "trun")
 	if err != nil {
 		return nil, err
 	}
-	return buildAtom("moof", b)
+	return utils.BuildAtom("traf", b)
+}
+
+func buildAVCC(t Track) ([]byte, error) {
+	return utils.BuildAtom("avcC", t.extradata)
+}
+
+func buildAVC1(t Track) ([]byte, error) {
+	b, err := t.buildAtoms("avcC")
+	if err != nil { return nil, err }
+	return utils.BuildAtom("avc1", append([]byte{
+		/* Reserved */
+		0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+		/* index */
+		0x0, 0x1,
+		/* version */
+		0x0, 0x0,
+		/* Revision level */
+		0x0, 0x0,
+		/* Vendor */
+		0x0, 0x0, 0x0, 0x0,
+		/* Temporal quality */
+		0x0, 0x0, 0x0, 0x0,
+		/* Spatial quality */
+		0x0, 0x0, 0x0, 0x0,
+		/* width */
+		byte((t.width >> 8) & 0xFF), byte((t.width) & 0xFF),
+ 		/* Height */
+		byte((t.height >> 8) & 0xFF), byte((t.height) & 0xFF),
+		/* Horizontal resolution */
+		0x0, 0x48, 0x0, 0x0,
+		/* Vertical resolution */
+		0x0, 0x48, 0x0, 0x0,
+		/* Data size */
+		0x0, 0x0, 0x0, 0x0,
+		/* Frames per sample */
+		0x0, 0x1,
+		/* Compressor Name */
+		0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+		0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+		0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+		0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+		/* Depth */
+		byte((t.bitsPerSample >> 8) & 0xFF), byte((t.bitsPerSample) & 0xFF),
+		/* Color table id */
+		byte((t.colorTableId >> 8) & 0xFF), byte((t.colorTableId) & 0xFF),
+	}, b...))
+}
+
+func buildESDS(t Track) ([]byte, error) {
+	size := len(t.extradata)
+	data := append(t.extradata, []byte{
+		0x6, 0x80, 0x80, 0x80, 0x1, 0x2,
+	}...)
+	data = append([]byte{
+		0x0, 0x0, 0x0, 0x0,
+		0x3, 0x80, 0x80, 0x80, 0x22, 0x0, 0x0, 0x0,
+		0x4, 0x80, 0x80, 0x80, 0x14, 0x40, 0x15, 0x0, 0x1, 0x18, 0x0,
+		0x1, 0x64, 0xf0, 0x0, 0x1, 0x44, 0x6b, 0x05, 0x80, 0x80, 0x80,
+		byte((size) & 0xFF),
+	}, data...)
+	return utils.BuildAtom("esds",  data)
+}
+
+func buildMP4A(t Track) ([]byte, error) {
+	b, err := t.buildAtoms("esds")
+	if err != nil { return nil, err }
+	return utils.BuildAtom("mp4a", append([]byte{
+		/* Reserved */
+		0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+		/* index */
+		0x0, 0x1,
+		/* Version */
+		0x0, 0x0,
+		/* Revision level */
+		0x0, 0x0,
+		/* Vendor */
+		0x0, 0x0, 0x0, 0x0,
+		/* channels */
+		0x0, 0x2,
+		/* Sample size */
+		0x0, 0x10,
+		/* Compression ID */
+		0x0, 0x0,
+		/* Packet size */
+		0x0, 0x0,
+		/* Sample rate */
+		byte((t.sampleRate >> 8) & 0xFF),
+		byte((t.sampleRate) & 0xFF),
+		0x0, 0x0,
+	}, b...))
 }
 
 func buildSTSD(t Track) ([]byte, error) {
-	return buildAtom("stsd", append([]byte{
-		/* Major brand */
+	var b []byte
+	var err error
+	if t.isAudio {
+		b, err = t.buildAtoms("mp4a")
+	} else {
+		b, err = t.buildAtoms("avc1")
+	}
+	if err != nil { return nil, err }
+	return utils.BuildAtom("stsd", append([]byte{
+		/* Flags + version */
 		0x0, 0x0, 0x0, 0x0,
+		/* Entry count */
 		0x0, 0x0, 0x0, 0x1,
-	}, t.extradata...))
+	}, b...))
 }
 
 func buildFTYP(t Track) ([]byte, error) {
-	return buildAtom("ftyp", []byte{
+	return utils.BuildAtom("ftyp", []byte{
 		/* Major brand */
 		0x64, 0x61, 0x73, 0x68,
 		/* Minor version */
@@ -172,7 +262,7 @@ func buildFTYP(t Track) ([]byte, error) {
 }
 
 func buildMVHD(t Track) ([]byte, error) {
-	return buildAtom("mvhd", []byte{
+	return utils.BuildAtom("mvhd", []byte{
 		/* Flags + version */
 		0x0, 0x0, 0x0, 0x0,
 		/* Creation time */
@@ -217,7 +307,7 @@ func buildMVHD(t Track) ([]byte, error) {
 }
 
 func buildTREX(t Track) ([]byte, error) {
-	return buildAtom("trex", []byte{
+	return utils.BuildAtom("trex", []byte{
 		/* Flags + version */
 		0x0, 0x0, 0x0, 0x0,
 		/* Track ID */
@@ -240,7 +330,7 @@ func buildTKHD(t Track) ([]byte, error) {
 	} else {
 		volume = 0
 	}
-	return buildAtom("tkhd", []byte{
+	return utils.BuildAtom("tkhd", []byte{
 		/* Flags + version */
 		0x0, 0x0, 0x0, 0x3,
 		/* Creation time */
@@ -277,16 +367,14 @@ func buildTKHD(t Track) ([]byte, error) {
 		0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
 		0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x4, 0x0, 0x0, 0x0,
 		/* Width */
-		byte((t.width >> 24) & 0xFF), byte((t.width >> 16) & 0xFF),
-		byte((t.width >> 8) & 0xFF), byte((t.width) & 0xFF),
+		byte((t.width >> 8) & 0xFF), byte((t.width) & 0xFF), 0x0, 0x0,
  		/* Height */
-		byte((t.height >> 24) & 0xFF), byte((t.height >> 16) & 0xFF),
-		byte((t.height >> 8) & 0xFF), byte((t.height) & 0xFF),
+		byte((t.height >> 8) & 0xFF), byte((t.height) & 0xFF), 0x0, 0x0,
 	})
 }
 
 func buildMDHD (t Track) ([]byte, error) {
-	return buildAtom("mdhd", []byte{
+	return utils.BuildAtom("mdhd", []byte{
 		/* Flags + version */
 		0x0, 0x0, 0x0, 0x0,
 		/* Creation time */
@@ -324,7 +412,7 @@ func buildHDLR (t Track) ([]byte, error) {
 		handler = 0x76696465
 		name = "VideoHandler"
 	}
-	return buildAtom("hdlr", []byte{
+	return utils.BuildAtom("hdlr", []byte{
 		/* Flags + version */
 		0x0, 0x0, 0x0, 0x0,
 		/* Predefined */
@@ -341,7 +429,7 @@ func buildHDLR (t Track) ([]byte, error) {
 }
 
 func buildDREF(t Track) ([]byte, error) {
-	return buildAtom("dref", []byte{
+	return utils.BuildAtom("dref", []byte{
 		0x0, 0x0, 0x0, 0x0,
 		0x0, 0x0, 0x0, 0x1,
 		0x0, 0x0, 0x0, 0xC,
@@ -351,7 +439,7 @@ func buildDREF(t Track) ([]byte, error) {
 }
 
 func buildVMHD(t Track) ([]byte, error) {
-	return buildAtom("vmhd", []byte{
+	return utils.BuildAtom("vmhd", []byte{
 		/* Flags + version */
 		0x0, 0x0, 0x0, 0x1,
 		/* Graphics mode */
@@ -361,8 +449,19 @@ func buildVMHD(t Track) ([]byte, error) {
 	})
 }
 
+func buildSMHD(t Track) ([]byte, error) {
+	return utils.BuildAtom("smhd", []byte{
+		/* Flags + version */
+		0x0, 0x0, 0x0, 0x0,
+		/* Balance */
+		0x0, 0x0,
+		/* Reserved */
+		0x0, 0x0, 0x0, 0x0,
+	})
+}
+
 func buildMFHD(t Track) ([]byte, error) {
-	return buildAtom("mfhd", []byte{
+	return utils.BuildAtom("mfhd", []byte{
 		/* Flags + version */
 		0x0, 0x0, 0x0, 0x0,
 		/* Sequence number */
@@ -371,7 +470,7 @@ func buildMFHD(t Track) ([]byte, error) {
 }
 
 func buildTFDT(t Track) ([]byte, error) {
-	return buildAtom("tfdt", []byte{
+	return utils.BuildAtom("tfdt", []byte{
 		/* Flags + version */
 		0x0, 0x0, 0x0, 0x0,
 		/* Base media decode time */
@@ -380,7 +479,7 @@ func buildTFDT(t Track) ([]byte, error) {
 }
 
 func buildFREE(t Track) ([]byte, error) {
-	return buildAtom("free", []byte("DashMe"))
+	return utils.BuildAtom("free", []byte("DashMe"))
 }
 
 func buildSIDX(t Track) ([]byte, error) {
@@ -419,11 +518,11 @@ func buildSIDX(t Track) ([]byte, error) {
 		/* Starts with SAP + SAP type + SAP delta time  */
 		0x90, 0x0, 0x0, 0x0,
 	}
-	return buildAtom("sidx", b)
+	return utils.BuildAtom("sidx", b)
 }
 
 func buildTFHD(t Track) ([]byte, error) {
-	return buildAtom("tfhd", []byte{
+	return utils.BuildAtom("tfhd", []byte{
 		/* Flags + version */
 		0x0, 0x2, 0x0, 0x0,
 		/* Track id */
@@ -432,7 +531,7 @@ func buildTFHD(t Track) ([]byte, error) {
 }
 
 func buildSTYP(t Track) ([]byte, error) {
-	return buildAtom("styp", []byte{
+	return utils.BuildAtom("styp", []byte{
 		/* Major brand */
 		0x64, 0x61, 0x73, 0x68,
 		/* Minor version */
@@ -448,16 +547,22 @@ func buildMDAT(t Track) ([]byte, error) {
 	for _, sample := range t.builder.samples {
 		b = append(b, sample.data...)
 	}
-	return buildAtom("mdat", b)
+	return utils.BuildAtom("mdat", b)
 }
 
 func buildTRUN(t Track) ([]byte, error) {
 	var b []byte
 	var size int
 	var composition int
+	var flags int
 	for _, sample := range t.builder.samples {
 		size = len(sample.data)
 		composition = sample.pts - sample.dts
+		if sample.keyFrame {
+			flags = 0x02400004
+		} else {
+			flags = 0x014100C0
+		}
 		b = append(b, []byte{
 			/* Sample duration */
 			byte((sample.duration >> 24) & 0xFF),
@@ -470,10 +575,10 @@ func buildTRUN(t Track) ([]byte, error) {
 			byte((size >> 8) & 0xFF),
 			byte((size) & 0xFF),
 			/* Sample duration */
-			byte((sample.flags >> 24) & 0xFF),
-			byte((sample.flags >> 16) & 0xFF),
-			byte((sample.flags >> 8) & 0xFF),
-			byte((sample.flags) & 0xFF),
+			byte((flags >> 24) & 0xFF),
+			byte((flags >> 16) & 0xFF),
+			byte((flags >> 8) & 0xFF),
+			byte((flags) & 0xFF),
 			/* Sample composition offset */
 			byte((composition >> 24) & 0xFF),
 			byte((composition >> 16) & 0xFF),
@@ -483,7 +588,7 @@ func buildTRUN(t Track) ([]byte, error) {
 	}
 	count := len(t.builder.samples)
 	offset := t.builder.computeMOOFSize() + 8
-	return buildAtom("trun", append([]byte{
+	return utils.BuildAtom("trun", append([]byte{
 		/* Flags + version */
 		0x1, 0x0, 0xF, 0x1,
 		/* Sample count */
@@ -518,6 +623,7 @@ func (b *Builder) Initialise() {
 	b.builders["dref"] = buildDREF /**/
 	b.builders["stbl"] = buildSTBL /**/
 	b.builders["vmhd"] = buildVMHD /**/
+	b.builders["smhd"] = buildSMHD /**/
 	b.builders["stsd"] = buildSTSD /**/
 	b.builders["stts"] = buildSTTS /**/
 	b.builders["stsc"] = buildSTSC /**/
@@ -533,6 +639,10 @@ func (b *Builder) Initialise() {
 	b.builders["tfdt"] = buildTFDT /**/
 	b.builders["trun"] = buildTRUN /**/
 	b.builders["mdat"] = buildMDAT /**/
+	b.builders["mp4a"] = buildMP4A /**/
+	b.builders["esds"] = buildESDS /**/
+	b.builders["avcC"] = buildAVCC /**/
+	b.builders["avc1"] = buildAVC1 /**/
 }
 
 func (b Builder) build(t Track, atoms ...string) ([]byte, error) {
@@ -574,12 +684,16 @@ func (b Builder) computeChunkDuration() int {
 }
 
 /* Track structure methods */
-func (t *Track) build(atoms ...string) ([]byte, error) {
+func (t *Track) buildAtoms(atoms ...string) ([]byte, error) {
 	return t.builder.build(*t, atoms...)
 }
 
+func (t *Track) appendSample(sample Sample) {
+	t.samples = append(t.samples, sample)
+}
+
 func (t *Track) buildInitChunk(path string) error {
-	b, err := t.build("ftyp", "free", "moov")
+	b, err := t.buildAtoms("ftyp", "free", "moov")
 	if err != nil {
 		return err
 	}
@@ -599,7 +713,7 @@ func (t *Track) buildInitChunk(path string) error {
 
 func (t *Track) buildSampleChunk(samples []Sample, path string) error {
 	t.builder.samples = samples
-	b, err := t.build("styp", "free", "sidx", "moof", "mdat")
+	b, err := t.buildAtoms("styp", "free", "sidx", "moof", "mdat")
 	if err != nil {
 		return err
 	}
@@ -641,7 +755,7 @@ func (t *Track) BuildChunks(count int, path string) error {
 		} else {
 			max = i + count
 		}
-		filename = "chunk_" + typename + string(i / count) + ".mp4"
+		filename = "chunk_" + typename + strconv.Itoa(i / count) + ".mp4"
 		err = t.buildSampleChunk(t.samples[i:max], filepath.Join(path, filename))
 		if err != nil {
 			return err

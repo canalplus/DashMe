@@ -5,33 +5,27 @@ import (
 	"io"
 	"utils"
 	"errors"
-	"parsers"
+	"parser"
 	"path/filepath"
 )
 
 type Parser interface {
 	Initialise()
 	Probe(reader io.ReadSeeker, isDir bool) int
-	Parse(reader io.ReadSeeker, tracks *[]parsers.Track, isDir bool) error
+	Parse(reader io.ReadSeeker, tracks *[]parser.Track, isDir bool) error
 }
 
 type DASHBuilder struct {
 	videoDir  string
 	cachedDir string
-	parsers	  []Parser
-	tracks    []parsers.Track
-}
-
-func (b *DASHBuilder) addParser(p Parser) {
-	p.Initialise()
-	b.parsers = append(b.parsers, p)
+	tracks    []parser.Track
 }
 
 func (b *DASHBuilder) Initialise(videoDir string, cachedDir string) {
 	b.videoDir = videoDir
 	b.cachedDir = cachedDir
 	b.tracks = nil
-	b.addParser(parsers.MP4Parser{})
+	parser.Initialise()
 }
 
 func (b *DASHBuilder) GetPathFromFilename(filename string) (string, bool) {
@@ -57,9 +51,8 @@ func (b *DASHBuilder) GetPathFromFilename(filename string) (string, bool) {
 }
 
 func (b *DASHBuilder) Build(filename string) error {
-	var parser Parser
-	var i      int
-	var score  int
+	var demuxer *parser.Demuxer
+	var err error
 	/* Clean up if necessary */
 	if len(b.tracks) > 0 {
 		b.tracks = nil
@@ -67,27 +60,16 @@ func (b *DASHBuilder) Build(filename string) error {
 	/* Get path to file */
 	path, isDir := b.GetPathFromFilename(filename)
 	if path == "" { return errors.New("Can't find file for building !") }
-	/* Open file */
-	f, err := os.Open(path)
-	if err != nil {
-		return err
+	/* Get demuxer */
+	if (!isDir) {
+		demuxer, err = parser.OpenDemuxer(path)
+	} else {
+		return errors.New("Can't parse multiple file format yet !")
 	}
-	defer f.Close()
-	/* Find best parser */
-	currentScore := 0
-	for i = 0; i < len(b.parsers); i++ {
-		score = b.parsers[i].Probe(f, isDir)
-		f.Seek(0, 0)
-		if score > 50 && score > currentScore {
-			currentScore = score;
-			parser = b.parsers[i]
-		}
-	}
-	/* If we don't have a good parser, return error */
-	if currentScore < 50 { return errors.New("Can't find suitable parser for building !") }
-	/* Parse file and recover tracks */
-	err = parser.Parse(f, &(b.tracks), isDir)
+	/* Recover track from demuxer */
+	err = demuxer.GetTracks(&b.tracks)
 	if err != nil { return err }
+	defer demuxer.CleanTracks(b.tracks)
 	for _, track := range b.tracks {
 		track.BuildChunks(50, filepath.Join(b.cachedDir, filename))
 	}
