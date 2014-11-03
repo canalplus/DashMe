@@ -27,6 +27,7 @@ type Sample struct {
 }
 
 type Track struct {
+	index            int
 	isAudio	         bool
 	creationTime     int
 	duration         int
@@ -52,8 +53,6 @@ func (t *Track) Print() {
 	fmt.Println("\twidth : ", t.width)
 	fmt.Println("\theight : ", t.height)
 }
-
-/* Atom generic building functions */
 
 /* Atom specific building functions */
 func buildSTTS(t Track) ([]byte, error) {
@@ -486,7 +485,7 @@ func buildSIDX(t Track) ([]byte, error) {
 	size := t.builder.computeMOOFSize()
 	size += t.builder.computeMDATSize()
 	duration := t.builder.computeChunkDuration()
-	b := []byte{
+	res, err := utils.BuildAtom("sidx", []byte{
 		/* Flags + version */
 		0x0, 0x0, 0x0, 0x0,
 		/* Reference id */
@@ -501,6 +500,8 @@ func buildSIDX(t Track) ([]byte, error) {
 		byte((t.builder.samples[0].pts >> 16) & 0xFF),
 		byte((t.builder.samples[0].pts >> 8) & 0xFF),
 		byte((t.builder.samples[0].pts) & 0xFF),
+		/* First Offset */
+		0x0, 0x0, 0x0, 0x0,
 		/* Reserved */
 		0x0, 0x0,
 		/* Reference count = 1 */
@@ -517,8 +518,8 @@ func buildSIDX(t Track) ([]byte, error) {
 		byte((duration) & 0xFF),
 		/* Starts with SAP + SAP type + SAP delta time  */
 		0x90, 0x0, 0x0, 0x0,
-	}
-	return utils.BuildAtom("sidx", b)
+	})
+	return res, err
 }
 
 func buildTFHD(t Track) ([]byte, error) {

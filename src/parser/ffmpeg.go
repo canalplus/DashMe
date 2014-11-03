@@ -1,6 +1,8 @@
 package parser
 
 //#include <libavformat/avformat.h>
+//#include <libavutil/opt.h>
+//
 //AVStream* get_stream(AVStream **streams, int pos)
 //{
 //  return streams[pos];
@@ -27,8 +29,18 @@ func OpenDemuxer(path string) (*Demuxer, error) {
 	} else if res < 0 {
 		return nil, errors.New("Could not open source file " + path)
 	} else {
+		C.av_opt_set_int(unsafe.Pointer(demux.context), C.CString("max_analyze_duration"), C.int64_t(0), C.int(0))
 		return demux, nil
 	}
+}
+
+func findTrack(tracks []Track, index int) *Track {
+	for i := 0; i < len(tracks); i++ {
+		if tracks[i].index == index {
+			return &tracks[i]
+		}
+	}
+	return nil
 }
 
 func (d *Demuxer) GetTracks(tracks *[]Track) error {
@@ -63,22 +75,26 @@ func (d *Demuxer) GetTracks(tracks *[]Track) error {
 			track.duration = int(stream.duration)
 			track.timescale = int(stream.time_base.den)
 			track.extradata = C.GoBytes(unsafe.Pointer(stream.codec.extradata), stream.codec.extradata_size)
+			track.index = int(stream.index)
 			*tracks = append(*tracks, *track)
 		}
 	}
 	for C.av_read_frame(d.context, &pkt) >= 0 {
-		sample = Sample{}
-		sample.pts = int(pkt.pts)
-		sample.dts = int(pkt.dts)
-		sample.duration = int(pkt.duration)
-		if (pkt.flags) & 0x1 > 0 {
-			sample.keyFrame = true
-		} else {
-			sample.keyFrame = false
+		track = findTrack(*tracks, int(pkt.stream_index))
+		if track != nil {
+			sample = Sample{}
+			sample.pts = int(pkt.pts)
+			sample.dts = int(pkt.dts)
+			sample.duration = int(pkt.duration)
+			if (pkt.flags) & 0x1 > 0 {
+				sample.keyFrame = true
+			} else {
+				sample.keyFrame = false
+			}
+			sample.dataPtr = unsafe.Pointer(pkt.data)
+			sample.data = C.GoBytes(sample.dataPtr, pkt.size)
+			track.samples = append(track.samples, sample)
 		}
-		sample.dataPtr = unsafe.Pointer(pkt.data)
-		sample.data = C.GoBytes(sample.dataPtr, pkt.size)
-		(*tracks)[int(pkt.stream_index)].samples = append((*tracks)[int(pkt.stream_index)].samples, sample)
 	}
 	return nil
 }
