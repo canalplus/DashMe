@@ -10,17 +10,19 @@ package parser
 import "C"
 import "errors"
 import "unsafe"
-import "fmt"
 
+/* Structure used to reference FFMPEG C AVFormatContext structure */
 type Demuxer struct {
 	context *C.AVFormatContext
 }
 
+/* Called when starting the program, initialise FFMPEG demuxers */
 func Initialise() error {
 	_, err := C.av_register_all()
 	return err
 }
 
+/* Open a file from a path and initialize a demuxer structure */
 func OpenDemuxer(path string) (*Demuxer, error) {
 	demux := new(Demuxer)
 	res, err := C.avformat_open_input(&(demux.context), C.CString(path), nil, nil)
@@ -43,22 +45,26 @@ func findTrack(tracks []Track, index int) *Track {
 	return nil
 }
 
+/* Retrieve tracks from previously opened file using FFMPEG */
 func (d *Demuxer) GetTracks(tracks *[]Track) error {
 	var track *Track
 	var stream *C.AVStream
 	var pkt C.AVPacket
 	var sample Sample
+	/* Use FFMPEG to extract stream info from file */
 	res, err := C.avformat_find_stream_info(d.context, nil)
 	if err != nil {
 		return err
 	} else if res < 0 {
 		return errors.New("Could not find stream information")
 	}
+	/* Iterate over streams found */
 	for i := 0; i < int(d.context.nb_streams); i++ {
+		/* Little hack to retrieve the stream due to pointer arithmetic */
 		stream = C.get_stream(d.context.streams, C.int(i))
 		track = nil
 		if stream.codec.codec_type == C.AVMEDIA_TYPE_VIDEO {
-			fmt.Printf("New video Track !\n")
+			/* Set video specific info in track structure */
 			track = new(Track)
 			track.width = int(stream.codec.width)
 			track.height = int(stream.codec.height)
@@ -66,22 +72,28 @@ func (d *Demuxer) GetTracks(tracks *[]Track) error {
 			track.colorTableId = int(stream.codec.color_table_id)
 			track.isAudio = false
 		} else if stream.codec.codec_type == C.AVMEDIA_TYPE_AUDIO {
-			fmt.Printf("New audio Track !\n")
+			/* Set audio specific info in track structure */
 			track = new(Track)
 			track.sampleRate = int(stream.codec.sample_rate)
 			track.isAudio = true
 		}
 		if track != nil {
+			/* Set common properties in track structure */
+			track.SetTimeFields()
 			track.duration = int(stream.duration)
 			track.timescale = int(stream.time_base.den)
 			track.extradata = C.GoBytes(unsafe.Pointer(stream.codec.extradata), stream.codec.extradata_size)
 			track.index = int(stream.index)
+			/* Append track to slice */
 			*tracks = append(*tracks, *track)
 		}
 	}
+	/* Now that we have all interesting tracks we can extract samples */
 	for C.av_read_frame(d.context, &pkt) >= 0 {
+		/* Retrieve track corresponding to packet, if we have one*/
 		track = findTrack(*tracks, int(pkt.stream_index))
 		if track != nil {
+			/* Sample is from an interesting track, so set info from packet */
 			sample = Sample{}
 			sample.pts = int(pkt.pts)
 			sample.dts = int(pkt.dts)
@@ -93,14 +105,18 @@ func (d *Demuxer) GetTracks(tracks *[]Track) error {
 			}
 			sample.dataPtr = unsafe.Pointer(pkt.data)
 			sample.data = C.GoBytes(sample.dataPtr, pkt.size)
-			track.samples = append(track.samples, sample)
+			/* Append sample to track samples */
+			track.appendSample(sample)
 		}
 	}
 	return nil
 }
 
+/* Free all C allocated data inside tracks */
 func (d *Demuxer) CleanTracks(tracks []Track) {
+	/* Iterate over all samples in all tracks to free their data allocated in C */
 	for _, track := range tracks {
+		track.Print()
 		for _, sample := range track.samples {
 			C.av_free(sample.dataPtr)
 		}

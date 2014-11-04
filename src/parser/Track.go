@@ -3,6 +3,7 @@ package parser
 import (
 	"os"
 	"fmt"
+	"time"
 	"utils"
 	"errors"
 	"unsafe"
@@ -10,13 +11,16 @@ import (
 	"path/filepath"
 )
 
+/* Function type used for atom generation */
 type AtomBuilder func(t Track) ([]byte, error)
 
+/* Structure used to build chunks */
 type Builder struct {
 	builders map[string]AtomBuilder
 	samples  []Sample
 }
 
+/* Structure used to store a Sample for chunk generation */
 type Sample struct {
 	pts      int
 	dts      int
@@ -26,6 +30,7 @@ type Sample struct {
 	dataPtr  unsafe.Pointer
 }
 
+/* Structure representing a track inside an input file */
 type Track struct {
 	index            int
 	isAudio	         bool
@@ -43,8 +48,10 @@ type Track struct {
 	builder          Builder
 }
 
+/* Print track on stdout */
 func (t *Track) Print() {
 	fmt.Println("Track :")
+	fmt.Println("\tindex : ", t.index)
 	fmt.Println("\tisAudio : ", t.isAudio)
 	fmt.Println("\tcreationTime : ", t.creationTime)
 	fmt.Println("\tmodificationTime : ", t.modificationTime)
@@ -52,9 +59,17 @@ func (t *Track) Print() {
 	fmt.Println("\ttimescale : ", t.timescale)
 	fmt.Println("\twidth : ", t.width)
 	fmt.Println("\theight : ", t.height)
+	fmt.Println("\tsampleRate : ", t.sampleRate)
+	fmt.Println("\tbitsPerSample : ", t.bitsPerSample)
+	fmt.Println("\tcolorTableId : ", t.colorTableId)
+	fmt.Println("\tsamples count : ", len(t.samples))
 }
 
-/* Atom specific building functions */
+/*
+   Atom specific building functions.
+   Refere to ISO 14496-12 2012E for more details on each atom
+*/
+
 func buildSTTS(t Track) ([]byte, error) {
 	return utils.BuildEmptyAtom("stts", 16)
 }
@@ -606,6 +621,8 @@ func buildTRUN(t Track) ([]byte, error) {
 }
 
 /* Builder structure methods */
+
+/* Initialise builder building function map */
 func (b *Builder) Initialise() {
 	b.builders = make(map[string]AtomBuilder)
 	b.builders["ftyp"] = buildFTYP /**/
@@ -646,6 +663,7 @@ func (b *Builder) Initialise() {
 	b.builders["avc1"] = buildAVC1 /**/
 }
 
+/* Build atoms from their tag passed as string */
 func (b Builder) build(t Track, atoms ...string) ([]byte, error) {
 	var buf []byte
 	var tmp []byte
@@ -659,6 +677,7 @@ func (b Builder) build(t Track, atoms ...string) ([]byte, error) {
 	return buf, nil
 }
 
+/* Compute size of to be generated MOOF atom */
 func (b Builder) computeMOOFSize() int {
 	return 16 + /* MFHD size */
 		8 + /* TRAF header size */
@@ -668,6 +687,7 @@ func (b Builder) computeMOOFSize() int {
 		8 /* MOOF header size */
 }
 
+/* Compute size of to be generated MDAT atom */
 func (b Builder) computeMDATSize() int {
 	acc := 0
 	for _, sample := range b.samples {
@@ -676,6 +696,7 @@ func (b Builder) computeMDATSize() int {
 	return acc + 8
 }
 
+/* Compute duration of to be generated chunk */
 func (b Builder) computeChunkDuration() int {
 	duration := 0
 	for _, sample := range b.samples {
@@ -685,26 +706,32 @@ func (b Builder) computeChunkDuration() int {
 }
 
 /* Track structure methods */
+
+/* Build atoms from their tag passed as string */
 func (t *Track) buildAtoms(atoms ...string) ([]byte, error) {
 	return t.builder.build(*t, atoms...)
 }
 
+/* Append a sample to the track sample slice */
 func (t *Track) appendSample(sample Sample) {
 	t.samples = append(t.samples, sample)
 }
 
+/* Build an init chunk from internal information */
 func (t *Track) buildInitChunk(path string) error {
+	/* Build init chunk atoms */
 	b, err := t.buildAtoms("ftyp", "free", "moov")
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Generation done in %q\n", path)
+	/* Open file */
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, os.ModePerm)
 	if err != nil {
 		fmt.Printf("Error while opening : " + err.Error() + "\n")
 		return err
 	}
 	defer f.Close()
+	/* Write generated atoms */
 	_, err = f.Write(b)
 	if err != nil {
 		fmt.Printf("Error while writing : " + err.Error() + "\n")
@@ -712,19 +739,23 @@ func (t *Track) buildInitChunk(path string) error {
 	return err
 }
 
+/* Build a chunk with samples from internal information */
 func (t *Track) buildSampleChunk(samples []Sample, path string) error {
+	/* Set samples for this chunk to the builder */
 	t.builder.samples = samples
+	/* Build chunk atoms */
 	b, err := t.buildAtoms("styp", "free", "sidx", "moof", "mdat")
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Generation done in %q\n", path)
+	/* Open file */
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, os.ModePerm)
 	if err != nil {
 		fmt.Printf("Error while opening : " + err.Error() + "\n")
 		return err
 	}
 	defer f.Close()
+	/* Write generated atoms */
 	_, err = f.Write(b)
 	if err != nil {
 		fmt.Printf("Error while writing : " + err.Error() + "\n")
@@ -732,6 +763,7 @@ func (t *Track) buildSampleChunk(samples []Sample, path string) error {
 	return err
 }
 
+/* Build all chunk with samples from internal information */
 func (t *Track) BuildChunks(count int, path string) error {
 	var max int
 	var filename string
@@ -741,6 +773,7 @@ func (t *Track) BuildChunks(count int, path string) error {
 	} else {
 		typename = "video"
 	}
+	/* Create and initialise new builder */
 	t.builder = Builder{}
 	t.builder.Initialise()
 	if !utils.FileExist(path) {
@@ -748,8 +781,10 @@ func (t *Track) BuildChunks(count int, path string) error {
 	} else if !utils.IsDirectory(path) {
 		return errors.New("Path '" + path + "' is not a directory")
 	}
+	/* Build init chunk */
 	err := t.buildInitChunk(filepath.Join(path, "init_" + typename + ".mp4"))
 	if err != nil { return err }
+	/* Divided samples accordingly and iterate for generating chunks */
 	for i := 0; i < len(t.samples); i += count {
 		if i + count >= len(t.samples) {
 			max = len(t.samples) - 1
@@ -757,10 +792,17 @@ func (t *Track) BuildChunks(count int, path string) error {
 			max = i + count
 		}
 		filename = "chunk_" + typename + strconv.Itoa(i / count) + ".mp4"
+		/* Generate one chunk */
 		err = t.buildSampleChunk(t.samples[i:max], filepath.Join(path, filename))
 		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+/* Set creationTime and modificationTime in Track structure */
+func (t *Track) SetTimeFields() {
+	t.creationTime = int(time.Since(time.Date(1904, time.January, 1, 0, 0, 0, 0, time.UTC)).Seconds())
+	t.modificationTime = t.creationTime
 }

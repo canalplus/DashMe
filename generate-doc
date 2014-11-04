@@ -1,0 +1,18 @@
+#! /bin/sh
+
+if [ -e doc ]; then
+    rm -rf doc
+fi
+
+mkdir doc
+
+echo '<html lang="en">' > doc/index.html
+echo '  <head>' >> doc/index.html
+echo '    <title>DashMe documentation</title>' >> doc/index.html
+echo '  </head>' >> doc/index.html
+echo '  <body>' >> doc/index.html
+godoc -index -html $1/main >> doc/index.html
+godoc -index -html $1/utils >> doc/index.html
+godoc -index -html $1/parser >> doc/index.html
+echo '  </body>' >> doc/index.html
+echo '</html>' >> doc/index.html

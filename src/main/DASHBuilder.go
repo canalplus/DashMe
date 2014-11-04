@@ -2,25 +2,20 @@ package main
 
 import (
 	"os"
-	"io"
 	"utils"
 	"errors"
 	"parser"
 	"path/filepath"
 )
 
-type Parser interface {
-	Initialise()
-	Probe(reader io.ReadSeeker, isDir bool) int
-	Parse(reader io.ReadSeeker, tracks *[]parser.Track, isDir bool) error
-}
-
+/* Structure used to store building specific information */
 type DASHBuilder struct {
 	videoDir  string
 	cachedDir string
 	tracks    []parser.Track
 }
 
+/* Initialise a DASHBuilder structure */
 func (b *DASHBuilder) Initialise(videoDir string, cachedDir string) {
 	b.videoDir = videoDir
 	b.cachedDir = cachedDir
@@ -28,6 +23,7 @@ func (b *DASHBuilder) Initialise(videoDir string, cachedDir string) {
 	parser.Initialise()
 }
 
+/* Retrieve path to file according to stored filename */
 func (b *DASHBuilder) GetPathFromFilename(filename string) (string, bool) {
 	var i int
 	/* Open directory with videos */
@@ -50,6 +46,7 @@ func (b *DASHBuilder) GetPathFromFilename(filename string) (string, bool) {
 	return res, utils.IsDirectory(res)
 }
 
+/* Build a DASH version of a file (manifest and chunks) */
 func (b *DASHBuilder) Build(filename string) error {
 	var demuxer *parser.Demuxer
 	var err error

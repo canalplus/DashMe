@@ -12,6 +12,7 @@ import (
   $CACHED_DIR/$FILENAME/chunk1.mp4
 */
 
+/* Structure used to store cache specific information */
 type CacheManager struct {
 	videoDir   string
 	cachedDir  string
@@ -20,6 +21,7 @@ type CacheManager struct {
 	converter  DASHBuilder
 }
 
+/* Create internal buffer of files that can be converted */
 func (c *CacheManager) BuildAvailables() {
 	/* Iterate over videoDir (1st level only) and extract filenames */
 	dir, err := os.Open(c.videoDir)
@@ -32,6 +34,7 @@ func (c *CacheManager) BuildAvailables() {
 	}
 }
 
+/* Create internal buffer of files that are already converted */
 func (c *CacheManager) BuildCached() {
 	/* Iterate over cachedDir (1st level only) and retrieve filenames */
 	dir, err := os.Open(c.cachedDir)
@@ -44,6 +47,7 @@ func (c *CacheManager) BuildCached() {
 	}
 }
 
+/* Initialise a CacheManager structure */
 func (c *CacheManager) Initialise(videoDir string, cachedDir string) {
 	c.videoDir = videoDir
 	c.BuildAvailables()
@@ -56,10 +60,12 @@ func (c *CacheManager) Initialise(videoDir string, cachedDir string) {
 	c.converter.Initialise(videoDir, cachedDir)
 }
 
+/* Return list of files that can be converted */
 func (c *CacheManager) GetAvailables() []string {
 	return c.availables
 }
 
+/* Return manifest for a file, build it if it does not exist */
 func (c *CacheManager) GetManifest(filename string) (string, error) {
 	var i int
 	var err error
@@ -90,6 +96,7 @@ func (c *CacheManager) GetManifest(filename string) (string, error) {
 	return "", err
 }
 
+/* Return a chunk from a file, build all if it does not exist */
 func (c *CacheManager) GetChunk(filename string, chunk string) (string, error) {
 	var i int
 	var err error

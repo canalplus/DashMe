@@ -26,11 +26,16 @@ main: $(MAIN_SOURCES)
 $(PROJECT): ffmpeg $(FFMPEGC_SOURCES) utils parsers main
 	$(GOC) $(FLAGS) -o $(PROJECT) main.o utils.o parser.o $(FFMPEGC_SOURCES) -Wl,-R,$(LIB_PATH) -lavformat -lavutil
 
+doc:
+	./generate-doc $(SOURCE_PREFIX)$(SOURCES)
+
 distclean: clean
-	rm -rf Makefile.inc $(INTEROPDIR)
+	rm -rf Makefile.inc $(INTEROPDIR) doc
 
 %.o:%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
 	rm -rf $(PROJECT) parser.o parser.gox utils.o utils.gox main.o
+
+.PHONY: doc

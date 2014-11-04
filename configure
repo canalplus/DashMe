@@ -111,12 +111,22 @@ if [ ! -d $INTEROPDIR ]; then
     mkdir $INTEROPDIR
 fi
 
+if echo $SOURCES | grep -E "^/.*" > /dev/null; then
+    SOURCE_PREFIX=""
+elif echo $SOURCES | grep -E "^\./.*" > /dev/null; then
+    SOURCE_PREFIX="./"
+    SOURCES=$(echo $SOURCES | tr -d "./")
+else
+    SOURCE_PREFIX="./"
+fi
+
 echo "PROJECT = " $PROJECT > Makefile.inc
 echo "GOC = "$TOOLCHAIN$COMPILER >> Makefile.inc
 echo "CC = "$TOOLCHAIN"gcc" >> Makefile.inc
 echo "CGO = "$CGO >> Makefile.inc
 echo "OBJCOPY = "$TOOLCHAIN$OBJCOPY >> Makefile.inc
 echo "FLAGS = "$FLAGS >> Makefile.inc
+echo "SOURCE_PREFIX = "$SOURCE_PREFIX >> Makefile.inc
 echo "SOURCES = "$SOURCES >> Makefile.inc
 echo 'MAIN_SOURCES = $(SOURCES)/main/CacheManager.go $(SOURCES)/main/DASHBuilder.go $(SOURCES)/main/DashMe.go $(SOURCES)/main/Server.go' >> Makefile.inc
 echo 'UTILS_SOURCES = $(SOURCES)/utils/Utils.go' >> Makefile.inc
