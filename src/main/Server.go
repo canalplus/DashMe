@@ -68,6 +68,9 @@ func (s *Server) start(port string) {
 		fmt.Printf("[" + r.Method + "] " + r.URL.Path + "\n")
 		/* If we have an handler, call it, otherwise return error code */
 		if handler != nil {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Add("Access-Control-Allow-Methods", "GET")
+			w.Header().Add("Access-Control-Allow-Headers", "Content-Type")
 			handler(w, r, params)
 		} else {
 			fmt.Printf("Error while serving : No handler found for route !\n")

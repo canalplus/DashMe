@@ -1,15 +1,25 @@
 package parser
 
-//#include <libavformat/avformat.h>
-//#include <libavutil/opt.h>
-//
-//AVStream* get_stream(AVStream **streams, int pos)
-//{
-//  return streams[pos];
-//}
+/*
+#include <libavformat/avformat.h>
+#include <libavutil/opt.h>
+
+#define TIMEBASE_Q (AVRational){1, 90000}
+
+AVStream* get_stream(AVStream **streams, int pos)
+{
+  return streams[pos];
+}
+
+int64_t rescale_to_timebase(int64_t val, AVRational timebase)
+{
+  return av_rescale_q(val, timebase, TIMEBASE_Q);
+}
+*/
 import "C"
 import "errors"
 import "unsafe"
+import "fmt"
 
 /* Structure used to reference FFMPEG C AVFormatContext structure */
 type Demuxer struct {
@@ -80,8 +90,8 @@ func (d *Demuxer) GetTracks(tracks *[]Track) error {
 		if track != nil {
 			/* Set common properties in track structure */
 			track.SetTimeFields()
-			track.duration = int(stream.duration)
-			track.timescale = int(stream.time_base.den)
+			track.duration = int(C.rescale_to_timebase(stream.duration, stream.time_base))
+			track.timescale = 90000
 			track.extradata = C.GoBytes(unsafe.Pointer(stream.codec.extradata), stream.codec.extradata_size)
 			track.index = int(stream.index)
 			/* Append track to slice */
@@ -92,17 +102,17 @@ func (d *Demuxer) GetTracks(tracks *[]Track) error {
 	for C.av_read_frame(d.context, &pkt) >= 0 {
 		/* Retrieve track corresponding to packet, if we have one*/
 		track = findTrack(*tracks, int(pkt.stream_index))
-		if track != nil {
+		stream = C.get_stream(d.context.streams, C.int(pkt.stream_index))
+		if pkt.pts == C.AV_NOPTS_VALUE {
+			fmt.Printf("AV_NOPTS_VALUE packet\n")
+		}
+		if track != nil && pkt.pts != C.AV_NOPTS_VALUE {
 			/* Sample is from an interesting track, so set info from packet */
 			sample = Sample{}
-			sample.pts = int(pkt.pts)
-			sample.dts = int(pkt.dts)
-			sample.duration = int(pkt.duration)
-			if (pkt.flags) & 0x1 > 0 {
-				sample.keyFrame = true
-			} else {
-				sample.keyFrame = false
-			}
+			sample.pts = int(C.rescale_to_timebase(pkt.pts, stream.time_base))
+			sample.dts = int(C.rescale_to_timebase(pkt.dts, stream.time_base))
+			sample.duration = int(C.rescale_to_timebase(C.int64_t(pkt.duration), stream.time_base))
+			sample.keyFrame = (pkt.flags) & 0x1 > 0
 			sample.dataPtr = unsafe.Pointer(pkt.data)
 			sample.data = C.GoBytes(sample.dataPtr, pkt.size)
 			/* Append sample to track samples */
@@ -115,10 +125,10 @@ func (d *Demuxer) GetTracks(tracks *[]Track) error {
 /* Free all C allocated data inside tracks */
 func (d *Demuxer) CleanTracks(tracks []Track) {
 	/* Iterate over all samples in all tracks to free their data allocated in C */
-	for _, track := range tracks {
-		track.Print()
-		for _, sample := range track.samples {
-			C.av_free(sample.dataPtr)
+	for i := 0; i < len(tracks); i++ {
+		tracks[i].Print()
+		for j := 0; j < len(tracks[i].samples); j++ {
+			C.av_free(tracks[i].samples[j].dataPtr)
 		}
 	}
 }

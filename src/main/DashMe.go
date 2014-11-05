@@ -27,13 +27,13 @@ func main() {
 	/* Initialising data structures */
 	cache.Initialise(*videoDir, *cachedDir)
 	/* Adding /manifest route */
-	s.addRoute("GET", "/manifest", func (w http.ResponseWriter, r *http.Request, params map[string]string) {
+	s.addRoute("GET", "/files", func (w http.ResponseWriter, r *http.Request, params map[string]string) {
 		w.Header().Set("Content-Type", "application/json")
 		res, _ := json.Marshal(cache.GetAvailables())
 		fmt.Fprintf(w, string(res))
 	})
 	/* Adding /manifest/<filename> route */
-	s.addRoute("GET", "/manifest/:filename", func (w http.ResponseWriter, r *http.Request, params map[string]string) {
+	s.addRoute("GET", "/dash/:filename/manifest.mpd", func (w http.ResponseWriter, r *http.Request, params map[string]string) {
 		path, err := cache.GetManifest(params["filename"])
 		if err != nil {
 			fmt.Printf("Error while retrieving manifest : " + err.Error() + "\n")
@@ -44,7 +44,7 @@ func main() {
 		}
 	})
 	/* Adding /dash/<filename>/<chunk> route */
-	s.addRoute("GET", "/dash/:filename/:chunk/", func (w http.ResponseWriter, r *http.Request, params map[string]string) {
+	s.addRoute("GET", "/dash/:filename/:chunk", func (w http.ResponseWriter, r *http.Request, params map[string]string) {
 		path, err := cache.GetChunk(params["filename"], params["chunk"])
 		if err != nil {
 			fmt.Printf("Error while retrieving chunk : " + err.Error() + "\n")
