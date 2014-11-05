@@ -783,7 +783,6 @@ func (t *Track) BuildChunks(count int, path string) error {
 	var max int
 	var filename string
 	var typename string
-	fmt.Printf("Chunk sample count : %d\n", count)
 	t.computeBandwidth()
 	if (t.isAudio) {
 		typename = "audio"
@@ -851,7 +850,7 @@ func (t *Track) buildVideoManifest() string {
 			res += `
           <S d="` + strconv.Itoa(duration) + `" />`
 		}
-	} // avc1.42C01E
+	}
 	res += `
         </SegmentTimeline>
       </SegmentTemplate>
@@ -892,7 +891,7 @@ func (t *Track) buildAudioManifest() string {
 			res += `
           <S d="` + strconv.Itoa(duration) + `" />`
 		}
-	}//mp4a.40.2
+	}
 	res += `
         </SegmentTimeline>
       </SegmentTemplate>

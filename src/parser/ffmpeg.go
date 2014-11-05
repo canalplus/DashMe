@@ -17,9 +17,9 @@ int64_t rescale_to_timebase(int64_t val, AVRational timebase)
 }
 */
 import "C"
+import "fmt"
 import "errors"
 import "unsafe"
-import "fmt"
 
 /* Structure used to reference FFMPEG C AVFormatContext structure */
 type Demuxer struct {
@@ -74,6 +74,10 @@ func (d *Demuxer) GetTracks(tracks *[]Track) error {
 		stream = C.get_stream(d.context.streams, C.int(i))
 		track = nil
 		if stream.codec.codec_type == C.AVMEDIA_TYPE_VIDEO {
+			/* Test if video is H264 */
+			if stream.codec.codec_id != C.AV_CODEC_ID_H264 {
+				return fmt.Errorf("Video track is not encoded in H264 (codec_id=%d)", stream.codec.codec_id)
+			}
 			/* Set video specific info in track structure */
 			track = new(Track)
 			track.width = int(stream.codec.width)
@@ -82,6 +86,10 @@ func (d *Demuxer) GetTracks(tracks *[]Track) error {
 			track.colorTableId = int(stream.codec.color_table_id)
 			track.isAudio = false
 		} else if stream.codec.codec_type == C.AVMEDIA_TYPE_AUDIO {
+			/* Test if audio is AAC */
+			if stream.codec.codec_id != C.AV_CODEC_ID_AAC  {
+				return fmt.Errorf("Audio track is not encoded in AAC (codec_id=%d)", stream.codec.codec_id)
+			}
 			/* Set audio specific info in track structure */
 			track = new(Track)
 			track.sampleRate = int(stream.codec.sample_rate)
@@ -103,9 +111,6 @@ func (d *Demuxer) GetTracks(tracks *[]Track) error {
 		/* Retrieve track corresponding to packet, if we have one*/
 		track = findTrack(*tracks, int(pkt.stream_index))
 		stream = C.get_stream(d.context.streams, C.int(pkt.stream_index))
-		if pkt.pts == C.AV_NOPTS_VALUE {
-			fmt.Printf("AV_NOPTS_VALUE packet\n")
-		}
 		if track != nil && pkt.pts != C.AV_NOPTS_VALUE {
 			/* Sample is from an interesting track, so set info from packet */
 			sample = Sample{}

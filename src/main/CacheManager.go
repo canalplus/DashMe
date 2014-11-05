@@ -19,6 +19,7 @@ type CacheManager struct {
 	availables []string
 	cached     []string
 	converter  DASHBuilder
+	converting map[string]bool
 }
 
 /* Create internal buffer of files that can be converted */
@@ -52,6 +53,7 @@ func (c *CacheManager) Initialise(videoDir string, cachedDir string) {
 	c.videoDir = videoDir
 	c.BuildAvailables()
 	c.cachedDir = cachedDir
+	c.converting = make(map[string]bool)
 	if (utils.FileExist(cachedDir)) {
 		c.BuildCached()
 	} else {
@@ -64,12 +66,12 @@ func (c *CacheManager) Initialise(videoDir string, cachedDir string) {
 func (c *CacheManager) GetAvailables() []string {
 	return c.availables
 }
-
-/* Return manifest for a file, build it if it does not exist */
-func (c *CacheManager) GetManifest(filename string) (string, error) {
+func (c *CacheManager) buildIfNeeded(filename string) error {
 	var i int
 	var err error
-	err = nil
+	if c.converting[filename] {
+		return errors.New("File '" + filename + "' is being generated")
+	}
 	/* check that filename has a match in availables */
 	for i = 0; i < len(c.availables); i++ {
 		if c.availables[i] == filename {
@@ -77,7 +79,7 @@ func (c *CacheManager) GetManifest(filename string) (string, error) {
 		}
 	}
 	if i == len(c.availables) {
-		return "", errors.New("File '" + filename + "' does not exist")
+		return errors.New("File '" + filename + "' does not exist")
 	}
 	/* Test if filename has a match in cache */
 	for i = 0; i < len(c.cached); i++ {
@@ -87,42 +89,27 @@ func (c *CacheManager) GetManifest(filename string) (string, error) {
 	}
 	/* Try to build file if none is found in cache */
 	if i == len(c.cached) {
+		c.converting[filename] = true
 		err = c.converter.Build(filename)
+		delete(c.converting, filename)
 	}
-	/* Return path only when one exist or build was successful */
-	if i != len(c.cached) || err == nil {
-		return filepath.Join(c.cachedDir, filename, "manifest.mpd"), nil
+	if err != nil { return err }
+	c.cached = append(c.cached, filename)
+	return nil
+}
+
+/* Return manifest for a file, build it if it does not exist */
+func (c *CacheManager) GetManifest(filename string) (string, error) {
+	if err := c.buildIfNeeded(filename); err != nil {
+		return "", err
 	}
-	return "", err
+	return filepath.Join(c.cachedDir, filename, "manifest.mpd"), nil
 }
 
 /* Return a chunk from a file, build all if it does not exist */
 func (c *CacheManager) GetChunk(filename string, chunk string) (string, error) {
-	var i int
-	var err error
-	err = nil
-	/* check that filename has a match in availables */
-	for i = 0; i < len(c.availables); i++ {
-		if c.availables[i] == filename {
-			break
-		}
+	if err := c.buildIfNeeded(filename); err != nil {
+		return "", err
 	}
-	if i == len(c.availables) {
-		return "", errors.New("File '" + filename + "' does not exist")
-	}
-	/* Test if filename has a match in cached */
-	for i := 0; i < len(c.cached); i++ {
-		if c.cached[i] == filename {
-			break
-		}
-	}
-	/* Try to build file if none is found in cache */
-	if i == len(c.cached) {
-		err = c.converter.Build(filename)
-	}
-	/* Return path only when one exist or build was successful */
-	if i != len(c.cached) || err == nil {
-		return filepath.Join(c.cachedDir, filename, chunk), nil
-	}
-	return "", err
+	return filepath.Join(c.cachedDir, filename, chunk), nil
 }

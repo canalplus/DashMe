@@ -2,7 +2,7 @@ package main
 
 import (
 	"os"
-	"fmt"
+	//"fmt"
 	"utils"
 	"errors"
 	"parser"
