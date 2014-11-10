@@ -54,6 +54,7 @@ func Initialise() error {
 	return err
 }
 
+/* Return byte data from a sample */
 func (s *Sample) GetData() []byte {
 	return C.GoBytes(s.data, s.size)
 }
@@ -72,6 +73,7 @@ func OpenDemuxer(path string) (*Demuxer, error) {
 	}
 }
 
+/* Find a track using its index */
 func findTrack(tracks []*Track, index int) *Track {
 	for i := 0; i < len(tracks); i++ {
 		if tracks[i].index == index {
@@ -81,6 +83,7 @@ func findTrack(tracks []*Track, index int) *Track {
 	return nil
 }
 
+/* Find the first Video track for use as chunk size reference */
 func (d *Demuxer) findMainIndex() int {
 	var stream *C.AVStream
 	for i := 0; i < int(d.context.nb_streams); i++ {
@@ -92,42 +95,58 @@ func (d *Demuxer) findMainIndex() int {
 	return 0
 }
 
+/* Called by GC to free sample data memory */
 func packetFinalizer(s *Sample) {
 	C.av_free(unsafe.Pointer(s.data))
 }
 
+/* Append a sample to a track */
 func (d *Demuxer) AppendSample(track *Track, stream *C.AVStream) {
 	sample := new(Sample)
+	/* Copy packet metadata in sample */
 	sample.pts = int(C.rescale_to_timebase(d.pkt.pts, stream.time_base))
 	sample.dts = int(C.rescale_to_timebase(d.pkt.dts, stream.time_base))
 	sample.duration = int(C.rescale_to_timebase(C.int64_t(d.pkt.duration), stream.time_base))
 	sample.keyFrame = (d.pkt.flags) & 0x1 > 0
+	/* Copy packet data in sample */
 	sample.size = d.pkt.size
 	sample.data = unsafe.Pointer(C.av_malloc(C.size_t(d.pkt.size)))
 	C.memcpy(sample.data, unsafe.Pointer(d.pkt.data), C.size_t(d.pkt.size))
+	/* Set finalizer to free memory when GC is called */
 	runtime.SetFinalizer(sample, packetFinalizer)
+	/* Append sample to track */
 	track.appendSample(sample)
 }
 
+/*
+Extract one chunk for each track from input, size of the chunk depends on the first
+ video track found.
+ */
 func (d *Demuxer) ExtractChunk(tracks *[]*Track) bool {
 	var track *Track
 	var stream *C.AVStream
+	/* Find first video track to use as reference for chunk size */
 	mainIndex := d.findMainIndex()
+	/* Append last extracted chunk */
 	d.AppendSample(findTrack(*tracks, int(d.pkt.stream_index)), C.get_stream(d.context.streams, C.int(d.pkt.stream_index)))
 	C.av_free_packet(&d.pkt)
+	/* Read frames until reference track sample uis a key frame */
 	res := C.av_read_frame(d.context, &d.pkt)
 	for ; res >= 0; res = C.av_read_frame(d.context, &d.pkt) {
 		/* Retrieve track corresponding to packet, if we have one*/
 		track = findTrack(*tracks, int(d.pkt.stream_index))
 		stream = C.get_stream(d.context.streams, C.int(d.pkt.stream_index))
 		if track != nil {
+			/* quit if pkt is from reference track and is a key frame*/
 			if (track.index == mainIndex && ((d.pkt.flags) & 0x1 > 0) && len(track.samples) > 0) {
 				break
 			}
+			/* Otherwise append sample to chunk */
 			d.AppendSample(track, stream)
 			C.av_free_packet(&d.pkt)
 		}
 	}
+	/* Return if we have reached EOF */
 	return res >= 0
 }
 
@@ -176,6 +195,7 @@ func (d *Demuxer) GetTracks(tracks *[]*Track) error {
 	return nil
 }
 
+/* Close demuxer and free FFMPEG specific data */
 func (d *Demuxer) Close() {
 	C.avformat_close_input(&d.context);
 }

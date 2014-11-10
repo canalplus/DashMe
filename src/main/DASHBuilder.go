@@ -50,6 +50,7 @@ func (b *DASHBuilder) GetPathFromFilename(filename string) string {
 	return res
 }
 
+/* Build manifest file */
 func (b *DASHBuilder) buildManifest() (string, error) {
 	duration := float64(0)
 	maxChunkDuration := float64(0)
@@ -89,6 +90,7 @@ func (b *DASHBuilder) buildManifest() (string, error) {
 	return manifest, nil
 }
 
+/* Clean builder private structures for GC */
 func (b *DASHBuilder) cleanTracks() {
 	for i := 0; i < len(b.tracks); i++ {
 		b.tracks[i].Clean()
@@ -97,12 +99,19 @@ func (b *DASHBuilder) cleanTracks() {
 	b.tracks = b.tracks[:0]
 }
 
+/* Build one chunk for each track in the builder */
 func (b *DASHBuilder) buildChunks(outPath string) {
+	/* Call each track generation function */
 	for i := 0; i < len(b.tracks); i++ {
 		b.tracks[i].BuildChunk(outPath)
 		b.tracks[i].Clean()
 	}
+	/* Force GC to pass */
 	runtime.GC()
+	/*
+           Release memory to OS. It calls GC again but because there is a finalizer for
+	   samples, there GO part has not be freed by GC.
+        */
 	debug.FreeOSMemory()
 }
 
@@ -123,8 +132,10 @@ func (b *DASHBuilder) Build(filename string) error {
 	/* Recover track from demuxer */
 	err = demuxer.GetTracks(&b.tracks)
 	if err != nil { return err }
+	/* Defer demuxer close and track clean up if anything goes wrong */
 	defer demuxer.Close()
 	defer b.cleanTracks()
+	/* If we did not find any track, there is a problem */
 	if len(b.tracks) <= 0 { return errors.New("No tracks found !") }
 	outPath := filepath.Join(b.cachedDir, filename)
 	/* Initialise build for each track and build init chunk */
@@ -151,7 +162,7 @@ func (b *DASHBuilder) Build(filename string) error {
 	defer f.Close()
 	/* Write generated manifest */
 	_, err = f.WriteString(manifest)
-	//utils.DisplayMemStats()
+	/* Force GC pass and memory release */
 	debug.FreeOSMemory()
 	return err
 }

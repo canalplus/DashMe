@@ -735,8 +735,6 @@ func (t *Track) buildInitChunk(path string) error {
 
 /* Build a chunk with samples from internal information */
 func (t *Track) buildSampleChunk(samples []*Sample, path string) (int, error) {
-	/* Set samples for this chunk to the builder */
-	//t.builder.samples = samples
 	/* Build chunk atoms */
 	b, err := t.buildAtoms("styp", "free", "sidx", "moof", "mdat")
 	if err != nil {
@@ -753,10 +751,14 @@ func (t *Track) buildSampleChunk(samples []*Sample, path string) (int, error) {
 	return t.computeChunkDuration(), err
 }
 
+/* Initialise build for the track */
 func (t *Track) InitialiseBuild(path string) error {
+	/* Compute track bandwidth */
 	t.computeBandwidth()
 	t.builder = Builder{}
+	/* Initialise builder */
 	t.builder.Initialise()
+	/* Create destination directory if it does not exist */
 	if !utils.FileExist(path) {
 		os.MkdirAll(path, os.ModeDir|os.ModePerm)
 	} else if !utils.IsDirectory(path) {
@@ -765,6 +767,7 @@ func (t *Track) InitialiseBuild(path string) error {
 	return nil
 }
 
+/* Build the init chunk for the track */
 func (t *Track) BuildInit(path string) error {
 	var typename string
 	if (t.isAudio) {
@@ -775,26 +778,31 @@ func (t *Track) BuildInit(path string) error {
 	return t.buildInitChunk(filepath.Join(path, "init_" + typename + ".mp4"))
 }
 
+/* Build a chunk for the track */
 func (t *Track) BuildChunk(path string) error {
+	/* Exit if there is nop sample : nothing to do ! */
 	if (len(t.samples) <= 0) {
 		return nil
 	}
 	var typename string
-	var err error
+	/* Set string type name */
 	if (t.isAudio) {
 		typename = "audio"
 	} else {
 		typename = "video"
 	}
-	duration := 0
+	/* Generate chunk file name */
 	filename := "chunk_" + typename + "_" + strconv.Itoa(t.currentDuration) + ".mp4"
 	/* Generate one chunk */
-	duration, err = t.buildSampleChunk(t.samples, filepath.Join(path, filename))
+	duration, err := t.buildSampleChunk(t.samples, filepath.Join(path, filename))
+	/* Append duration to list for manifest generation */
 	t.chunksDuration = append(t.chunksDuration, duration)
+	/* Increment current duration for next chunk filename */
 	t.currentDuration += duration
 	return err
 }
 
+/* Build video track specific part of the manifest */
 func (t *Track) buildVideoManifest() string {
 	res := `
     <AdaptationSet
@@ -842,6 +850,7 @@ func (t *Track) buildVideoManifest() string {
 	return res
 }
 
+/* Build audio track specific part of the manifest */
 func (t *Track) buildAudioManifest() string {
 	res := `
     <AdaptationSet
@@ -917,7 +926,7 @@ func (t *Track) extractCodec() {
 	}
 }
 
-/* Build all chunk with samples from internal information */
+/* Build track specific part of the manifest */
 func (t *Track) BuildAdaptationSet() string {
 	t.extractCodec()
 	if t.isAudio {
@@ -960,6 +969,7 @@ func (t *Track) MinBufferTime() float64 {
 	return float64(size) / float64(t.bandwidth)
 }
 
+/* Clean track private structures for GC */
 func (t *Track) Clean() {
 	for i := 0; i < len(t.samples); i++ {
 		t.samples[i] = nil

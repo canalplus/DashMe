@@ -30,7 +30,7 @@ doc:
 	./generate-doc $(SOURCE_PREFIX)$(SOURCES)
 
 distclean: clean
-	rm -rf Makefile.inc $(OBJDIR) doc
+	rm -rf Makefile.inc $(OBJDIR)
 
 %.o:%.c
 	$(CC) $(CFLAGS) -c $< -o $@
