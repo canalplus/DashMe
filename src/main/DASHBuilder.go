@@ -2,19 +2,20 @@ package main
 
 import (
 	"os"
-	//"fmt"
 	"utils"
 	"errors"
 	"parser"
+	"runtime"
 	"strconv"
 	"path/filepath"
+	"runtime/debug"
 )
 
 /* Structure used to store building specific information */
 type DASHBuilder struct {
 	videoDir  string
 	cachedDir string
-	tracks    []parser.Track
+	tracks    []*parser.Track
 }
 
 /* Initialise a DASHBuilder structure */
@@ -58,7 +59,7 @@ func (b *DASHBuilder) buildManifest() (string, error) {
 		maxChunkDuration = b.tracks[0].MaxChunkDuration()
 	}
 	for i := 1; i < len(b.tracks); i++ {
-		if b.tracks[i].Duration() > duration {
+		if b.tracks[i].Duration() < duration {
 			duration = b.tracks[i].Duration()
 		}
 		if b.tracks[i].MaxChunkDuration() > maxChunkDuration {
@@ -88,6 +89,23 @@ func (b *DASHBuilder) buildManifest() (string, error) {
 	return manifest, nil
 }
 
+func (b *DASHBuilder) cleanTracks() {
+	for i := 0; i < len(b.tracks); i++ {
+		b.tracks[i].Clean()
+		b.tracks[i] = nil
+	}
+	b.tracks = b.tracks[:0]
+}
+
+func (b *DASHBuilder) buildChunks(outPath string) {
+	for i := 0; i < len(b.tracks); i++ {
+		b.tracks[i].BuildChunk(outPath)
+		b.tracks[i].Clean()
+	}
+	runtime.GC()
+	debug.FreeOSMemory()
+}
+
 /* Build a DASH version of a file (manifest and chunks) */
 func (b *DASHBuilder) Build(filename string) error {
 	var demuxer *parser.Demuxer
@@ -98,27 +116,30 @@ func (b *DASHBuilder) Build(filename string) error {
 		b.tracks = nil
 	}
 	/* Get path to file */
-	path := b.GetPathFromFilename(filename)
-	if path == "" { return errors.New("Can't find file for building !") }
+	inPath := b.GetPathFromFilename(filename)
+	if inPath == "" { return errors.New("Can't find file for building !") }
 	/* Get demuxer */
-	demuxer, err = parser.OpenDemuxer(path)
+	demuxer, err = parser.OpenDemuxer(inPath)
 	/* Recover track from demuxer */
 	err = demuxer.GetTracks(&b.tracks)
 	if err != nil { return err }
+	defer demuxer.Close()
+	defer b.cleanTracks()
 	if len(b.tracks) <= 0 { return errors.New("No tracks found !") }
-	defer demuxer.CleanTracks(b.tracks)
-	/* Calculate the number of sample per chunks */
-	count := b.tracks[0].ChunkCount()
-	for i := 1; i < len(b.tracks); i++ {
-		chunkCount := b.tracks[i].ChunkCount()
-		if chunkCount < count {
-			count = chunkCount
-		}
-	}
-	/* Build chunks for each track */
+	outPath := filepath.Join(b.cachedDir, filename)
+	/* Initialise build for each track and build init chunk */
 	for i := 0; i < len(b.tracks); i++ {
-		b.tracks[i].BuildChunks(count, filepath.Join(b.cachedDir, filename))
+		b.tracks[i].InitialiseBuild(outPath)
+		b.tracks[i].BuildInit(outPath)
 	}
+	/* While we have sample build chunks for each tracks */
+	eof := false
+	for !eof {
+		eof = !demuxer.ExtractChunk(&b.tracks)
+		b.buildChunks(outPath)
+	}
+	/* If there is samples left in tracks */
+	b.buildChunks(outPath)
 	/* Build manifest */
 	manifest, err = b.buildManifest()
 	if err != nil { return err }
@@ -130,5 +151,7 @@ func (b *DASHBuilder) Build(filename string) error {
 	defer f.Close()
 	/* Write generated manifest */
 	_, err = f.WriteString(manifest)
+	//utils.DisplayMemStats()
+	debug.FreeOSMemory()
 	return err
 }

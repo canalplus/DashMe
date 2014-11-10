@@ -6,7 +6,6 @@ import (
 	"time"
 	"utils"
 	"errors"
-	"unsafe"
 	"strings"
 	"strconv"
 	"path/filepath"
@@ -19,17 +18,6 @@ type AtomBuilder func(t Track) ([]byte, error)
 /* Structure used to build chunks */
 type Builder struct {
 	builders map[string]AtomBuilder
-	samples  []Sample
-}
-
-/* Structure used to store a Sample for chunk generation */
-type Sample struct {
-	pts      int
-	dts      int
-	duration int
-	keyFrame bool
-	data	 []byte
-	dataPtr  unsafe.Pointer
 }
 
 /* Structure representing a track inside an input file */
@@ -47,8 +35,9 @@ type Track struct {
 	colorTableId     int
 	bandwidth        int
 	codec            string
+	currentDuration  int
 	extradata        []byte
-	samples          []Sample
+	samples          []*Sample
 	chunksDuration   []int
 	builder          Builder
 }
@@ -495,10 +484,10 @@ func buildTFDT(t Track) ([]byte, error) {
 		/* Flags + version */
 		0x0, 0x0, 0x0, 0x0,
 		/* Base media decode time */
-		byte((t.builder.samples[0].pts >> 24) & 0xFF),
-		byte((t.builder.samples[0].pts >> 16) & 0xFF),
-		byte((t.builder.samples[0].pts >> 8) & 0xFF),
-		byte((t.builder.samples[0].pts) & 0xFF),
+		byte((t.samples[0].pts >> 24) & 0xFF),
+		byte((t.samples[0].pts >> 16) & 0xFF),
+		byte((t.samples[0].pts >> 8) & 0xFF),
+		byte((t.samples[0].pts) & 0xFF),
 	})
 }
 
@@ -507,9 +496,9 @@ func buildFREE(t Track) ([]byte, error) {
 }
 
 func buildSIDX(t Track) ([]byte, error) {
-	size := t.builder.computeMOOFSize()
-	size += t.builder.computeMDATSize()
-	duration := t.builder.computeChunkDuration()
+	size := t.computeMOOFSize()
+	size += t.computeMDATSize()
+	duration := t.computeChunkDuration()
 	res, err := utils.BuildAtom("sidx", []byte{
 		/* Flags + version */
 		0x0, 0x0, 0x0, 0x0,
@@ -521,10 +510,10 @@ func buildSIDX(t Track) ([]byte, error) {
 		byte((t.timescale >> 8) & 0xFF),
 		byte((t.timescale) & 0xFF),
 		/* Earliest presentation time */
-		byte((t.builder.samples[0].pts >> 24) & 0xFF),
-		byte((t.builder.samples[0].pts >> 16) & 0xFF),
-		byte((t.builder.samples[0].pts >> 8) & 0xFF),
-		byte((t.builder.samples[0].pts) & 0xFF),
+		byte((t.samples[0].pts >> 24) & 0xFF),
+		byte((t.samples[0].pts >> 16) & 0xFF),
+		byte((t.samples[0].pts >> 8) & 0xFF),
+		byte((t.samples[0].pts) & 0xFF),
 		/* First Offset */
 		0x0, 0x0, 0x0, 0x0,
 		/* Reserved */
@@ -570,9 +559,9 @@ func buildSTYP(t Track) ([]byte, error) {
 
 func buildMDAT(t Track) ([]byte, error) {
 	var b []byte
-	for _, sample := range t.builder.samples {
-		b = append(b, sample.data...)
-	}
+	for i := 0; i < len(t.samples); i++ {
+	 	b = append(b, t.samples[i].GetData()...)
+	 }
 	return utils.BuildAtom("mdat", b)
 }
 
@@ -581,20 +570,20 @@ func buildTRUN(t Track) ([]byte, error) {
 	var size int
 	var composition int
 	var flags int
-	for _, sample := range t.builder.samples {
-		size = len(sample.data)
-		composition = sample.pts - sample.dts
-		if sample.keyFrame {
+	for i :=0; i < len(t.samples); i++ {
+		size = int(t.samples[i].size)
+		composition = t.samples[i].pts - t.samples[i].dts
+		if t.samples[i].keyFrame {
 			flags = 0x02400004
 		} else {
 			flags = 0x014100C0
 		}
 		b = append(b, []byte{
 			/* Sample duration */
-			byte((sample.duration >> 24) & 0xFF),
-			byte((sample.duration >> 16) & 0xFF),
-			byte((sample.duration >> 8) & 0xFF),
-			byte((sample.duration) & 0xFF),
+			byte((t.samples[i].duration >> 24) & 0xFF),
+			byte((t.samples[i].duration >> 16) & 0xFF),
+			byte((t.samples[i].duration >> 8) & 0xFF),
+			byte((t.samples[i].duration) & 0xFF),
 			/* Sample size */
 			byte((size >> 24) & 0xFF),
 			byte((size >> 16) & 0xFF),
@@ -612,8 +601,8 @@ func buildTRUN(t Track) ([]byte, error) {
 			byte((composition) & 0xFF),
 		}...)
 	}
-	count := len(t.builder.samples)
-	offset := t.builder.computeMOOFSize() + 8
+	count := len(t.samples)
+	offset := t.computeMOOFSize() + 8
 	return utils.BuildAtom("trun", append([]byte{
 		/* Flags + version */
 		0x1, 0x0, 0xF, 0x1,
@@ -678,7 +667,6 @@ func (b Builder) build(t Track, atoms ...string) ([]byte, error) {
 	var buf []byte
 	var tmp []byte
 	var err error
-
 	for i := 0; i < len(atoms); i++ {
 		tmp, err = b.builders[atoms[i]](t)
 		if err != nil { return nil, err }
@@ -687,35 +675,35 @@ func (b Builder) build(t Track, atoms ...string) ([]byte, error) {
 	return buf, nil
 }
 
+/* Track structure methods */
+
 /* Compute size of to be generated MOOF atom */
-func (b Builder) computeMOOFSize() int {
+func (t *Track) computeMOOFSize() int {
 	return 16 + /* MFHD size */
 		8 + /* TRAF header size */
 		16 + /* TFHD size*/
 		16 + /* TFDT size */
-		20 + 16 * len(b.samples) + /* TRUN size */
+		20 + 16 * len(t.samples) + /* TRUN size */
 		8 /* MOOF header size */
 }
 
-/* Compute size of to be generated MDAT atom */
-func (b Builder) computeMDATSize() int {
-	acc := 0
-	for _, sample := range b.samples {
-		acc += len(sample.data)
-	}
-	return acc + 8
-}
-
 /* Compute duration of to be generated chunk */
-func (b Builder) computeChunkDuration() int {
+func (t *Track) computeChunkDuration() int {
 	duration := 0
-	for _, sample := range b.samples {
-		duration += sample.duration
+	for i := 0; i < len(t.samples); i++ {
+		duration += t.samples[i].duration
 	}
 	return duration
 }
 
-/* Track structure methods */
+/* Compute size of to be generated MDAT atom */
+func (t *Track) computeMDATSize() int {
+	acc := 0
+	for i := 0; i < len(t.samples); i++ {
+		acc += int(t.samples[i].size)
+	}
+	return acc + 8
+}
 
 /* Build atoms from their tag passed as string */
 func (t *Track) buildAtoms(atoms ...string) ([]byte, error) {
@@ -723,7 +711,7 @@ func (t *Track) buildAtoms(atoms ...string) ([]byte, error) {
 }
 
 /* Append a sample to the track sample slice */
-func (t *Track) appendSample(sample Sample) {
+func (t *Track) appendSample(sample *Sample) {
 	t.samples = append(t.samples, sample)
 }
 
@@ -746,9 +734,9 @@ func (t *Track) buildInitChunk(path string) error {
 }
 
 /* Build a chunk with samples from internal information */
-func (t *Track) buildSampleChunk(samples []Sample, path string) (int, error) {
+func (t *Track) buildSampleChunk(samples []*Sample, path string) (int, error) {
 	/* Set samples for this chunk to the builder */
-	t.builder.samples = samples
+	//t.builder.samples = samples
 	/* Build chunk atoms */
 	b, err := t.buildAtoms("styp", "free", "sidx", "moof", "mdat")
 	if err != nil {
@@ -762,34 +750,11 @@ func (t *Track) buildSampleChunk(samples []Sample, path string) (int, error) {
 	defer f.Close()
 	/* Write generated atoms */
 	_, err = f.Write(b)
-	return t.builder.computeChunkDuration(), err
+	return t.computeChunkDuration(), err
 }
 
-func (t *Track) ChunkCount() int {
-	var i int
-	if t.isAudio {
-		return len(t.samples)
-	}
-	for i = 1; i < len(t.samples); i++ {
-		if t.samples[i].keyFrame {
-			break
-		}
-	}
-	return i
-}
-
-/* Build all chunk with samples from internal information */
-func (t *Track) BuildChunks(count int, path string) error {
-	var max int
-	var filename string
-	var typename string
+func (t *Track) InitialiseBuild(path string) error {
 	t.computeBandwidth()
-	if (t.isAudio) {
-		typename = "audio"
-	} else {
-		typename = "video"
-	}
-	/* Create and initialise new builder */
 	t.builder = Builder{}
 	t.builder.Initialise()
 	if !utils.FileExist(path) {
@@ -797,29 +762,37 @@ func (t *Track) BuildChunks(count int, path string) error {
 	} else if !utils.IsDirectory(path) {
 		return errors.New("Path '" + path + "' is not a directory")
 	}
-	/* Build init chunk */
-	err := t.buildInitChunk(filepath.Join(path, "init_" + typename + ".mp4"))
-	if err != nil { return err }
-	/* Divided samples accordingly and iterate for generating chunks */
-	duration := 0
-	totalDuration := 0
-	for i := 0; i < len(t.samples); i += count {
-		if i + count >= len(t.samples) {
-			max = len(t.samples) - 1
-		} else {
-			max = i + count
-		}
-		/* TODO : instead of Itoa, use time */
-		filename = "chunk_" + typename + "_" + strconv.Itoa(totalDuration) + ".mp4"
-		/* Generate one chunk */
-		duration, err = t.buildSampleChunk(t.samples[i:max], filepath.Join(path, filename))
-		t.chunksDuration = append(t.chunksDuration, duration)
-		totalDuration += duration
-		if err != nil {
-			return err
-		}
-	}
 	return nil
+}
+
+func (t *Track) BuildInit(path string) error {
+	var typename string
+	if (t.isAudio) {
+		typename = "audio"
+	} else {
+		typename = "video"
+	}
+	return t.buildInitChunk(filepath.Join(path, "init_" + typename + ".mp4"))
+}
+
+func (t *Track) BuildChunk(path string) error {
+	if (len(t.samples) <= 0) {
+		return nil
+	}
+	var typename string
+	var err error
+	if (t.isAudio) {
+		typename = "audio"
+	} else {
+		typename = "video"
+	}
+	duration := 0
+	filename := "chunk_" + typename + "_" + strconv.Itoa(t.currentDuration) + ".mp4"
+	/* Generate one chunk */
+	duration, err = t.buildSampleChunk(t.samples, filepath.Join(path, filename))
+	t.chunksDuration = append(t.chunksDuration, duration)
+	t.currentDuration += duration
+	return err
 }
 
 func (t *Track) buildVideoManifest() string {
@@ -915,7 +888,7 @@ func (t *Track) computeBandwidth() {
 	totalSize := 0
 	for _, sample := range t.samples {
 		totalDuration += sample.duration
-		totalSize += len(sample.data)
+		totalSize += int(sample.size)
 	}
 	totalDuration /= t.timescale
 	if totalDuration > 0 {
@@ -980,9 +953,17 @@ func (t *Track) MaxChunkDuration() float64 {
 func (t *Track) MinBufferTime() float64 {
 	size := 0
 	for i := 0; i < len(t.samples); i++ {
-		if len(t.samples[i].data) > size {
-			size = len(t.samples[i].data)
+		if int(t.samples[i].size) > size {
+			size = int(t.samples[i].size)
 		}
 	}
 	return float64(size) / float64(t.bandwidth)
+}
+
+func (t *Track) Clean() {
+	for i := 0; i < len(t.samples); i++ {
+		t.samples[i] = nil
+	}
+	t.samples = t.samples[:0]
+	t.samples = nil
 }

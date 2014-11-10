@@ -8,7 +8,7 @@ FLAGS="-g -static-libgo"
 PROJECT="DashMe"
 SOURCES="src"
 LIB_PATH="/usr/lib/gcc/x86_64-linux-gnu/4.9/"
-INTEROPDIR=".obj"
+OBJDIR=".obj"
 
 print_usage ()
 {
@@ -22,7 +22,7 @@ print_usage ()
     echo "  -n : Name of executable (default : '"$PROJECT"')"
     echo "  -s : Path to source directory (default : '"$SOURCES"')"
     echo "  -l : Path to GCC libraries (default : '"$LIB_PATH"')"
-    echo "  -d : Name of directory for GO/C interoperability (default : '"$INTEROPDIR"')"
+    echo "  -o : Name of directory for compiled objects (default : '"$OBJDIR"')"
 }
 
 verify_tools()
@@ -79,7 +79,7 @@ do
          LIB_PATH=$OPTARG
          ;;
      d)
-         INTEROPDIR=$OPTARG
+         OBJDIR=$OPTARG
          ;;
      g)
          CGO=$OPTARG
@@ -97,7 +97,7 @@ do
 done;
 
 verify_tools "make "$TOOLCHAIN$COMPILER" "$TOOLCHAIN"gcc"
-verify_packages "libavformat libavutil"
+verify_packages "libavformat libavutil libavcodec"
 
 OLD_IFS=$IFS
 IFS=","
@@ -107,8 +107,8 @@ for parser in $PARSERS; do
 done
 IFS=$OLD_IFS
 
-if [ ! -d $INTEROPDIR ]; then
-    mkdir $INTEROPDIR
+if [ ! -d $OBJDIR ]; then
+    mkdir $OBJDIR
 fi
 
 if echo $SOURCES | grep -E "^/.*" > /dev/null; then
@@ -133,6 +133,7 @@ echo 'UTILS_SOURCES = $(SOURCES)/utils/Utils.go' >> Makefile.inc
 echo 'PARSER_SOURCES = $(SOURCES)/parser/Track.go' >> Makefile.inc
 echo 'FFMPEG_SOURCES = $(SOURCES)/parser/ffmpeg.go' >> Makefile.inc
 echo "LIB_PATH = "$LIB_PATH >> Makefile.inc
-echo "INTEROPDIR = "$INTEROPDIR >> Makefile.inc
+echo "OBJDIR = "$OBJDIR >> Makefile.inc
+echo "LIBS = -lavformat -lavutil -lavcodec" >> Makefile.inc
 
 echo "Configure done, ready to build !"

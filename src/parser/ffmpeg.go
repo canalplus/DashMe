@@ -1,8 +1,11 @@
 package parser
 
 /*
+#cgo LDFLAGS: -lavformat -lavutil -lavcodec
 #include <libavformat/avformat.h>
 #include <libavutil/opt.h>
+#include <libavcodec/avcodec.h>
+#include <string.h>
 
 #define TIMEBASE_Q (AVRational){1, 90000}
 
@@ -15,21 +18,44 @@ int64_t rescale_to_timebase(int64_t val, AVRational timebase)
 {
   return av_rescale_q(val, timebase, TIMEBASE_Q);
 }
+
+void copy_packet(AVPacket *src, AVPacket *dst)
+{
+  dst = av_malloc(sizeof(AVPacket));
+  memcpy(dst, src, sizeof(AVPacket));
+}
 */
 import "C"
 import "fmt"
 import "errors"
 import "unsafe"
+import "runtime"
 
 /* Structure used to reference FFMPEG C AVFormatContext structure */
 type Demuxer struct {
-	context *C.AVFormatContext
+	context   *C.AVFormatContext
+	pkt       C.AVPacket
+}
+
+/* Structure used to store a Sample for chunk generation */
+type Sample struct {
+	pts      int
+	dts      int
+	duration int
+	keyFrame bool
+	data	 unsafe.Pointer
+	size     C.int
+	pkt      *C.AVPacket
 }
 
 /* Called when starting the program, initialise FFMPEG demuxers */
 func Initialise() error {
 	_, err := C.av_register_all()
 	return err
+}
+
+func (s *Sample) GetData() []byte {
+	return C.GoBytes(s.data, s.size)
 }
 
 /* Open a file from a path and initialize a demuxer structure */
@@ -46,33 +72,73 @@ func OpenDemuxer(path string) (*Demuxer, error) {
 	}
 }
 
-func findTrack(tracks []Track, index int) *Track {
+func findTrack(tracks []*Track, index int) *Track {
 	for i := 0; i < len(tracks); i++ {
 		if tracks[i].index == index {
-			return &tracks[i]
+			return tracks[i]
 		}
 	}
 	return nil
 }
 
-/* Retrieve tracks from previously opened file using FFMPEG */
-func (d *Demuxer) GetTracks(tracks *[]Track) error {
+func (d *Demuxer) findMainIndex() int {
+	var stream *C.AVStream
+	for i := 0; i < int(d.context.nb_streams); i++ {
+		stream = C.get_stream(d.context.streams, C.int(i))
+		if (stream.codec.codec_type == C.AVMEDIA_TYPE_VIDEO) {
+			return int(stream.index)
+		}
+	}
+	return 0
+}
+
+func packetFinalizer(s *Sample) {
+	C.av_free(unsafe.Pointer(s.data))
+}
+
+func (d *Demuxer) AppendSample(track *Track, stream *C.AVStream) {
+	sample := new(Sample)
+	sample.pts = int(C.rescale_to_timebase(d.pkt.pts, stream.time_base))
+	sample.dts = int(C.rescale_to_timebase(d.pkt.dts, stream.time_base))
+	sample.duration = int(C.rescale_to_timebase(C.int64_t(d.pkt.duration), stream.time_base))
+	sample.keyFrame = (d.pkt.flags) & 0x1 > 0
+	sample.size = d.pkt.size
+	sample.data = unsafe.Pointer(C.av_malloc(C.size_t(d.pkt.size)))
+	C.memcpy(sample.data, unsafe.Pointer(d.pkt.data), C.size_t(d.pkt.size))
+	runtime.SetFinalizer(sample, packetFinalizer)
+	track.appendSample(sample)
+}
+
+func (d *Demuxer) ExtractChunk(tracks *[]*Track) bool {
 	var track *Track
 	var stream *C.AVStream
-	var pkt C.AVPacket
-	var sample Sample
-	/* Use FFMPEG to extract stream info from file */
-	res, err := C.avformat_find_stream_info(d.context, nil)
-	if err != nil {
-		return err
-	} else if res < 0 {
-		return errors.New("Could not find stream information")
+	mainIndex := d.findMainIndex()
+	d.AppendSample(findTrack(*tracks, int(d.pkt.stream_index)), C.get_stream(d.context.streams, C.int(d.pkt.stream_index)))
+	C.av_free_packet(&d.pkt)
+	res := C.av_read_frame(d.context, &d.pkt)
+	for ; res >= 0; res = C.av_read_frame(d.context, &d.pkt) {
+		/* Retrieve track corresponding to packet, if we have one*/
+		track = findTrack(*tracks, int(d.pkt.stream_index))
+		stream = C.get_stream(d.context.streams, C.int(d.pkt.stream_index))
+		if track != nil {
+			if (track.index == mainIndex && ((d.pkt.flags) & 0x1 > 0) && len(track.samples) > 0) {
+				break
+			}
+			d.AppendSample(track, stream)
+			C.av_free_packet(&d.pkt)
+		}
 	}
-	/* Iterate over streams found */
+	return res >= 0
+}
+
+/* Retrieve tracks from previously opened file using FFMPEG */
+func (d *Demuxer) GetTracks(tracks *[]*Track) error {
+	var track *Track
+	var stream *C.AVStream
+	/* Iterate over streams found by ffmpeg */
 	for i := 0; i < int(d.context.nb_streams); i++ {
 		/* Little hack to retrieve the stream due to pointer arithmetic */
 		stream = C.get_stream(d.context.streams, C.int(i))
-		track = nil
 		if stream.codec.codec_type == C.AVMEDIA_TYPE_VIDEO {
 			/* Test if video is H264 */
 			if stream.codec.codec_id != C.AV_CODEC_ID_H264 {
@@ -94,46 +160,22 @@ func (d *Demuxer) GetTracks(tracks *[]Track) error {
 			track = new(Track)
 			track.sampleRate = int(stream.codec.sample_rate)
 			track.isAudio = true
+		} else {
+			continue
 		}
-		if track != nil {
-			/* Set common properties in track structure */
-			track.SetTimeFields()
-			track.duration = int(C.rescale_to_timebase(stream.duration, stream.time_base))
-			track.timescale = 90000
-			track.extradata = C.GoBytes(unsafe.Pointer(stream.codec.extradata), stream.codec.extradata_size)
-			track.index = int(stream.index)
-			/* Append track to slice */
-			*tracks = append(*tracks, *track)
-		}
+		/* Set common properties in track structure */
+		track.SetTimeFields()
+		track.duration = int(C.rescale_to_timebase(stream.duration, stream.time_base))
+		track.timescale = 90000
+		track.extradata = C.GoBytes(unsafe.Pointer(stream.codec.extradata), stream.codec.extradata_size)
+		track.index = int(stream.index)
+		/* Append track to slice */
+		*tracks = append(*tracks, track)
 	}
-	/* Now that we have all interesting tracks we can extract samples */
-	for C.av_read_frame(d.context, &pkt) >= 0 {
-		/* Retrieve track corresponding to packet, if we have one*/
-		track = findTrack(*tracks, int(pkt.stream_index))
-		stream = C.get_stream(d.context.streams, C.int(pkt.stream_index))
-		if track != nil && pkt.pts != C.AV_NOPTS_VALUE {
-			/* Sample is from an interesting track, so set info from packet */
-			sample = Sample{}
-			sample.pts = int(C.rescale_to_timebase(pkt.pts, stream.time_base))
-			sample.dts = int(C.rescale_to_timebase(pkt.dts, stream.time_base))
-			sample.duration = int(C.rescale_to_timebase(C.int64_t(pkt.duration), stream.time_base))
-			sample.keyFrame = (pkt.flags) & 0x1 > 0
-			sample.dataPtr = unsafe.Pointer(pkt.data)
-			sample.data = C.GoBytes(sample.dataPtr, pkt.size)
-			/* Append sample to track samples */
-			track.appendSample(sample)
-		}
-	}
+	C.av_read_frame(d.context, &d.pkt)
 	return nil
 }
 
-/* Free all C allocated data inside tracks */
-func (d *Demuxer) CleanTracks(tracks []Track) {
-	/* Iterate over all samples in all tracks to free their data allocated in C */
-	for i := 0; i < len(tracks); i++ {
-		tracks[i].Print()
-		for j := 0; j < len(tracks[i].samples); j++ {
-			C.av_free(tracks[i].samples[j].dataPtr)
-		}
-	}
+func (d *Demuxer) Close() {
+	C.avformat_close_input(&d.context);
 }

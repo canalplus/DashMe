@@ -3,11 +3,13 @@ package utils
 import (
 	"os"
 	"io"
-	"path/filepath"
-	"encoding/binary"
-	"strings"
 	"fmt"
 	"bytes"
+	"strings"
+	"strconv"
+	"runtime"
+	"path/filepath"
+	"encoding/binary"
 )
 
 /* Test if a file or directory exist */
@@ -133,4 +135,51 @@ func BuildAtom(tag string, content []byte) ([]byte, error) {
 /* Build atom of a specific size filled with 0 */
 func BuildEmptyAtom(tag string, size int) ([]byte, error) {
 	return BuildAtom(tag, make([]byte, size))
+}
+
+func formatSize(val uint64) string {
+	if val > 1000000000 {
+		return strconv.FormatFloat(float64(val) / 1000000000, 'f', -1, 64) + " G"
+	} else if val > 1000000 {
+		return strconv.FormatFloat(float64(val) / 1000000, 'f', -1, 64) + " M"
+	} else if val > 1000 {
+		return strconv.FormatFloat(float64(val) / 1000, 'f', -1, 64) + " K"
+	} else {
+		return strconv.Itoa(int(val)) + " B"
+	}
+}
+
+func DisplayMemStats() {
+	var stats runtime.MemStats
+	runtime.ReadMemStats(&stats)
+	fmt.Printf("Alloc : %s\n", formatSize(stats.Alloc))
+	fmt.Printf("TotalAlloc : %s\n", formatSize(stats.TotalAlloc))
+	fmt.Printf("Sys : %s\n", formatSize(stats.Sys))
+	fmt.Printf("Lookups : %d\n", stats.Lookups)
+	fmt.Printf("Mallocs : %d\n", stats.Mallocs)
+	fmt.Printf("Frees : %d\n", stats.Frees)
+	fmt.Println()
+	fmt.Printf("HeapAlloc : %s\n", formatSize(stats.HeapAlloc))
+	fmt.Printf("HeapSys : %s\n", formatSize(stats.HeapSys))
+	fmt.Printf("HeapIdle : %s\n", formatSize(stats.HeapIdle))
+	fmt.Printf("HeapInuse : %s\n", formatSize(stats.HeapInuse))
+	fmt.Printf("HeapReleased : %s\n", formatSize(stats.HeapReleased))
+	fmt.Printf("HeapObjects : %d\n", stats.HeapObjects)
+	fmt.Println()
+	fmt.Printf("StackInuse : %d\n", stats.StackInuse)
+	fmt.Printf("StackSys : %d\n", stats.StackSys)
+	fmt.Printf("MSpanInuse : %d\n", stats.MSpanInuse)
+	fmt.Printf("MSpanSys : %d\n", stats.MSpanSys)
+	fmt.Printf("MCacheInuse : %d\n", stats.MCacheInuse)
+	fmt.Printf("MCacheSys : %d\n", stats.MCacheSys)
+	fmt.Printf("BuckHashSys : %d\n", stats.BuckHashSys)
+	fmt.Printf("GCSys : %d\n", stats.GCSys)
+	fmt.Printf("OtherSys : %d\n", stats.OtherSys)
+	fmt.Println()
+	fmt.Printf("NextGC : %d\n", stats.NextGC)
+	fmt.Printf("LastGC : %d\n", stats.LastGC)
+	fmt.Printf("PauseTotalNs : %d\n", stats.PauseTotalNs)
+	fmt.Printf("NumGC : %d\n", stats.NumGC)
+	fmt.Printf("EnableGC : %t\n", stats.EnableGC)
+	fmt.Printf("DebugGC : %t\n", stats.DebugGC)
 }

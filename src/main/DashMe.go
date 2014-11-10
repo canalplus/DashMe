@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"flag"
+	"utils"
+	"runtime"
 	"net/http"
 	"encoding/json"
 )
@@ -32,6 +34,11 @@ func main() {
 		res, _ := json.Marshal(cache.GetAvailables())
 		fmt.Fprintf(w, string(res))
 	})
+	/* Adding /manifest route */
+	s.addRoute("GET", "/mem", func (w http.ResponseWriter, r *http.Request, params map[string]string) {
+		utils.DisplayMemStats()
+		fmt.Fprintf(w, "")
+	})
 	/* Adding /manifest/<filename> route */
 	s.addRoute("GET", "/dash/:filename/manifest.mpd", func (w http.ResponseWriter, r *http.Request, params map[string]string) {
 		path, err := cache.GetManifest(params["filename"])
@@ -39,7 +46,6 @@ func main() {
 			fmt.Printf("Error while retrieving manifest : " + err.Error() + "\n")
 			http.Error(w, "Invalid request !", http.StatusNotFound)
 		} else {
-			fmt.Printf("Serving file %q\n", path)
 			http.ServeFile(w, r, path)
 		}
 	})
@@ -54,6 +60,7 @@ func main() {
 		}
 	})
 	/* Starting API */
+	fmt.Printf("GO Version : " + runtime.Version() + "\n")
 	fmt.Printf("Starting DashMe API (video=%q, cache=%q), listening on port %q\n", *videoDir, *cachedDir, *port)
 	s.start(*port)
 }
