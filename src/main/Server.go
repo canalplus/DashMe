@@ -1,8 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"utils"
+	"errors"
 	"net/http"
 )
 
@@ -58,14 +58,14 @@ func (s *Server) getRouteHandler(method string, path string, params *map[string]
 }
 
 /* Start sever */
-func (s *Server) start(port string) {
+func (s *Server) start(port string, errChan chan error, logger Logger) {
 	/* Set global handler for any request */
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		var status int
 		params := make(map[string]string)
 		/* Get handler corresponding to route call */
 		handler, status := s.getRouteHandler(r.Method, r.URL.Path, &params)
-		fmt.Printf("[" + r.Method + "] " + r.URL.Path + "\n")
+		logger.Debug("[" + r.Method + "] " + r.URL.Path)
 		/* If we have an handler, call it, otherwise return error code */
 		if handler != nil {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -73,13 +73,13 @@ func (s *Server) start(port string) {
 			w.Header().Add("Access-Control-Allow-Headers", "Content-Type")
 			handler(w, r, params)
 		} else {
-			fmt.Printf("Error while serving : No handler found for route !\n")
+			errChan <- errors.New("Unable to serve '" + r.URL.Path + "', no handler has been found")
 			http.Error(w, "Invalid request !", status)
 		}
 	})
 	/* start listening on provided port */
 	err := http.ListenAndServe(":" + port, nil)
 	if err != nil {
-		fmt.Printf("Error while server listening : ", err)
+		errChan <- err
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 )
 
+/* Inotify main thread */
 func inotifyRoutine(watcher *utils.Watcher, errChan chan error, cache *CacheManager) {
 	/* Poll watcher channels */
 	for {
@@ -44,6 +45,7 @@ func inotifyRoutine(watcher *utils.Watcher, errChan chan error, cache *CacheMana
 	}
 }
 
+/* Set up inotify and launch main thread */
 func StartInotify(cache *CacheManager, path string) (chan error, error) {
 	/* Create watcher */
 	watcher, err := utils.NewWatcher()

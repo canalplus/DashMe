@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"flag"
-	"utils"
 	"runtime"
 	"net/http"
 	"encoding/json"
@@ -15,36 +14,21 @@ const (
 	DEFAULT_CACHED_DIR = "/tmp/DashMe"
 )
 
-func main() {
-	var s Server
-	var cache CacheManager
-	/* Parsing command line */
-	port  := flag.String("port", DEFAULT_PORT, "TCP port used when starting the API")
-	videoDir := flag.String("video", DEFAULT_VIDEO_DIR, "Directory containing the videos")
-	cachedDir := flag.String("cache", DEFAULT_CACHED_DIR, "Directory used for caching")
-	flag.Parse()
-	if *port == "" { *port = DEFAULT_PORT }
-	if *videoDir == "" { *videoDir = DEFAULT_VIDEO_DIR }
-	if *cachedDir == "" { *cachedDir = DEFAULT_CACHED_DIR }
-	/* Initialising data structures */
-	cache.Initialise(*videoDir, *cachedDir)
-	serverChan := make(chan error)
-	/* Adding /manifest route */
-	s.addRoute("GET", "/files", func (w http.ResponseWriter, r *http.Request, params map[string]string) {
+/* /files handler */
+func filesRouteHandler(cache CacheManager, serverChan chan error) RouteHandler {
+	return func (w http.ResponseWriter, r *http.Request, params map[string]string) {
 		w.Header().Set("Content-Type", "application/json")
 		res, err := json.Marshal(cache.GetAvailables())
 		fmt.Fprintf(w, string(res))
 		if err != nil {
 			serverChan <- err
 		}
-	})
-	/* Adding /mem route */
-	s.addRoute("GET", "/mem", func (w http.ResponseWriter, r *http.Request, params map[string]string) {
-		utils.DisplayMemStats()
-		fmt.Fprintf(w, "")
-	})
-	/* Adding /manifest/<filename> route */
-	s.addRoute("GET", "/dash/:filename/manifest.mpd", func (w http.ResponseWriter, r *http.Request, params map[string]string) {
+	}
+}
+
+/* /manifest/<filename> handler */
+func manifestRouteHandler(cache CacheManager, serverChan chan error) RouteHandler {
+	return func (w http.ResponseWriter, r *http.Request, params map[string]string) {
 		path, err := cache.GetManifest(params["filename"])
 		if err != nil {
 			serverChan <- err
@@ -52,9 +36,12 @@ func main() {
 		} else {
 			http.ServeFile(w, r, path)
 		}
-	})
-	/* Adding /dash/<filename>/<chunk> route */
-	s.addRoute("GET", "/dash/:filename/:chunk", func (w http.ResponseWriter, r *http.Request, params map[string]string) {
+	}
+}
+
+/* /manifest/<filename>/<chunk> handler */
+func chunkRouteHandler(cache CacheManager, serverChan chan error) RouteHandler {
+	return func (w http.ResponseWriter, r *http.Request, params map[string]string) {
 		path, err := cache.GetChunk(params["filename"], params["chunk"])
 		if err != nil {
 			serverChan <- err
@@ -62,22 +49,65 @@ func main() {
 		} else {
 			http.ServeFile(w, r, path)
 		}
-	})
+	}
+}
+
+func parseCommandLine(port *string, videoDir *string, cachedDir *string) {
+	tmpPort := flag.String("port", DEFAULT_PORT, "TCP port used when starting the API")
+	tmpVideoDir := flag.String("video", DEFAULT_VIDEO_DIR, "Directory containing the videos")
+	tmpCachedDir := flag.String("cache", DEFAULT_CACHED_DIR, "Directory used for caching")
+	flag.Parse()
+	if *tmpPort == "" {
+		*port = DEFAULT_PORT
+	} else {
+		*port = *tmpPort
+	}
+	if *tmpVideoDir == "" {
+		*videoDir = DEFAULT_VIDEO_DIR
+	} else {
+		*videoDir = *tmpVideoDir
+	}
+	if *tmpCachedDir == "" {
+		*cachedDir = DEFAULT_CACHED_DIR
+	} else {
+		*cachedDir = *tmpCachedDir
+	}
+}
+
+
+/* Main function */
+func main() {
+	var server    Server
+	var cache     CacheManager
+	var logger    Logger
+	var port      string
+	var videoDir  string
+	var cachedDir string
+	/* Parsing command line */
+	parseCommandLine(&port, &videoDir, &cachedDir)
+	/* Initialising data structures */
+	cache.Initialise(videoDir, cachedDir)
+	serverChan := make(chan error)
+	/* Initialise route handling */
+	server.addRoute("GET", "/files", filesRouteHandler(cache, serverChan))
+	server.addRoute("GET", "/dash/:filename/manifest.mpd", manifestRouteHandler(cache, serverChan))
+	server.addRoute("GET", "/dash/:filename/:chunk", chunkRouteHandler(cache, serverChan))
 	/* Start file monitoring */
-	inotifyChan, err := StartInotify(&cache, *videoDir)
+	inotifyChan, err := StartInotify(&cache, videoDir)
 	if err != nil {
-		fmt.Printf("Failed to initialise INOTIFY\n")
+		logger.Error("Failed to initialise INOTIFY")
 	}
 	/* Starting API */
-	fmt.Printf("GO Version : " + runtime.Version() + "\n")
-	fmt.Printf("Starting DashMe API (video=%q, cache=%q), listening on port %q\n", *videoDir, *cachedDir, *port)
-	go s.start(*port)
+	logger.Debug("GO Version : " + runtime.Version())
+	logger.Debug("Starting DashMe API (video=%q, cache=%q), listening on port %q", videoDir, cachedDir, port)
+	go server.start(port, serverChan, logger)
+	/* Wait for error from both Inotify and Serve threads */
 	for {
 		select {
 		case serverError := <- serverChan:
-			fmt.Printf("Server Error : %q\n", serverError.Error())
+			logger.Error("Server Error : %q", serverError.Error())
 		case inotifyError := <- inotifyChan:
-			fmt.Printf("Inotify Error : %q\n", inotifyError.Error())
+			logger.Error("Inotify Error : %q", inotifyError.Error())
 		}
 	}
 }
