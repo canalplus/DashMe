@@ -113,3 +113,33 @@ func (c *CacheManager) GetChunk(filename string, chunk string) (string, error) {
 	}
 	return filepath.Join(c.cachedDir, filename, chunk), nil
 }
+
+func (c *CacheManager) AddFile(path string) error {
+	c.availables = append(c.availables, utils.RemoveExtension(filepath.Base(path)))
+	return nil
+}
+
+func (c *CacheManager) RemoveFile(path string) error {
+	filename := utils.RemoveExtension(filepath.Base(path))
+	/* If filename in cached remove directory and remove from list */
+	for i := 0; i < len(c.cached); i++ {
+		if c.cached[i] == filename {
+			c.cached = append(c.cached[:i], c.cached[i + 1:]...)
+			os.Remove(path)
+			break
+		}
+	}
+	/* Remove from availables list */
+	for i := 0; i < len(c.availables); i++ {
+		if c.availables[i] == filename {
+			c.availables = append(c.availables[:i], c.availables[i + 1:]...)
+		}
+	}
+	return nil
+}
+
+func (c *CacheManager) UpdateFile(path string) error {
+	/* Just remove directory, this will force a generation next time */
+	os.Remove(path)
+	return nil
+}

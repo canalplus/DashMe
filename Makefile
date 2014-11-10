@@ -26,9 +26,6 @@ main: $(MAIN_SOURCES)
 $(PROJECT): ffmpeg $(FFMPEGC_SOURCES) utils parsers main
 	$(GOC) $(FLAGS) -o $(PROJECT) $(OBJDIR)/main.o $(OBJDIR)/utils.o $(OBJDIR)/parser.o $(FFMPEGC_SOURCES) -Wl,-R,$(LIB_PATH) $(LIBS)
 
-doc:
-	./generate-doc $(SOURCE_PREFIX)$(SOURCES)
-
 distclean: clean
 	rm -rf Makefile.inc $(OBJDIR)
 

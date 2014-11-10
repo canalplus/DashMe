@@ -18,12 +18,6 @@ int64_t rescale_to_timebase(int64_t val, AVRational timebase)
 {
   return av_rescale_q(val, timebase, TIMEBASE_Q);
 }
-
-void copy_packet(AVPacket *src, AVPacket *dst)
-{
-  dst = av_malloc(sizeof(AVPacket));
-  memcpy(dst, src, sizeof(AVPacket));
-}
 */
 import "C"
 import "fmt"
