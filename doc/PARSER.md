@@ -1,7 +1,5 @@
 # parser
 --
-    import "."
-
 
 ## Usage
 
