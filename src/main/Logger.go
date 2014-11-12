@@ -14,9 +14,9 @@ func getDate() string {
 }
 
 func (l* Logger) Debug(str string, args ...interface{}) {
-	fmt.Printf("[" + getDate() + "] [DEBUG] " + str + "\n", args...)
+	fmt.Printf("[" + getDate() + "][DEBUG] " + str + "\n", args...)
 }
 
 func (l* Logger) Error(str string, args ...interface{}) {
-	fmt.Printf("[" + getDate() + "] [ERROR] " + str + "\n", args...)
+	fmt.Printf("[" + getDate() + "][ERROR] " + str + "\n", args...)
 }

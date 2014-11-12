@@ -3,6 +3,7 @@ package main
 import (
 	"utils"
 	"errors"
+	"strings"
 	"net/http"
 )
 
@@ -41,7 +42,7 @@ func (s *Server) getRouteHandler(method string, path string, params *map[string]
 	var i int
 	/* Find corresponding route */
 	for i = 0; i < len(s.routes); i++ {
-		if utils.ParseURL(s.routes[i].pattern, path, params) {
+		if utils.ParseURL(s.routes[i].pattern, path, params) && s.routes[i].method == method  {
 			break
 		}
 	}
@@ -49,12 +50,25 @@ func (s *Server) getRouteHandler(method string, path string, params *map[string]
 	if i == len(s.routes) {
 		return nil, http.StatusNotFound
 	}
-	/* Found but the method used is not defined : return 405 */
-	if s.routes[i].method != method {
-		return nil, http.StatusMethodNotAllowed
-	}
 	/* Return its handler */
 	return s.routes[i].handler, 0
+}
+
+/* Set headers for CORS */
+func (s *Server) setCORSHeaders(w http.ResponseWriter, path string) {
+	var i int
+	var methods []string
+	/* Find corresponding route */
+	for i = 0; i < len(s.routes); i++ {
+		if utils.ParseURL(s.routes[i].pattern, path, nil) {
+			methods = append(methods, s.routes[i].method)
+		}
+	}
+	if len(methods) > 0 {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Add("Access-Control-Allow-Methods", strings.Join(methods, ", "))
+		w.Header().Add("Access-Control-Allow-Headers", "Content-Type")
+	}
 }
 
 /* Start sever */
@@ -65,16 +79,15 @@ func (s *Server) start(port string, errChan chan error, logger Logger) {
 		params := make(map[string]string)
 		/* Get handler corresponding to route call */
 		handler, status := s.getRouteHandler(r.Method, r.URL.Path, &params)
-		logger.Debug("[" + r.Method + "] " + r.URL.Path)
 		/* If we have an handler, call it, otherwise return error code */
 		if handler != nil {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Add("Access-Control-Allow-Methods", "GET")
-			w.Header().Add("Access-Control-Allow-Headers", "Content-Type")
+			s.setCORSHeaders(w, r.URL.Path)
 			handler(w, r, params)
+			logger.Debug("" + r.Method + " : " + r.URL.Path)
 		} else {
 			errChan <- errors.New("Unable to serve '" + r.URL.Path + "', no handler has been found")
 			http.Error(w, "Invalid request !", status)
+			logger.Debug("" + r.Method + " : " + r.URL.Path)
 		}
 	})
 	/* start listening on provided port */

@@ -35,7 +35,9 @@ func ParseURL(pattern string, path string, params *map[string]string) bool {
 	}
 	for i := 0; i < len(patternSplit); i++ {
 		if len(patternSplit[i]) != 0 && patternSplit[i][0] == ':' && pathSplit[i] != "" {
-			(*params)[strings.Trim(patternSplit[i], ":")] = pathSplit[i]
+			if params != nil {
+				(*params)[strings.Trim(patternSplit[i], ":")] = pathSplit[i]
+			}
 		} else if patternSplit[i] != pathSplit[i] {
 			return false
 		}
@@ -59,7 +61,6 @@ func ReadAtomHeader(reader io.ReadSeeker, res *int) (string, error) {
 	err := binary.Read(reader, binary.BigEndian, &size)
 	if err != nil { return "", err }
 	err = binary.Read(reader, binary.LittleEndian, &tag)
-	fmt.Printf("Tag read : %q\n", tag)
 	if err != nil { return "", err }
 	*res = int(size)
 	return string(tag[:]), nil

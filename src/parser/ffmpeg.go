@@ -26,7 +26,7 @@ import "unsafe"
 import "runtime"
 
 /* Structure used to reference FFMPEG C AVFormatContext structure */
-type Demuxer struct {
+type FFMPEGDemuxer struct {
 	context   *C.AVFormatContext
 	pkt       C.AVPacket
 }
@@ -43,7 +43,7 @@ type Sample struct {
 }
 
 /* Called when starting the program, initialise FFMPEG demuxers */
-func Initialise() error {
+func FFMPEGInitialise() error {
 	_, err := C.av_register_all()
 	return err
 }
@@ -51,20 +51,6 @@ func Initialise() error {
 /* Return byte data from a sample */
 func (s *Sample) GetData() []byte {
 	return C.GoBytes(s.data, s.size)
-}
-
-/* Open a file from a path and initialize a demuxer structure */
-func OpenDemuxer(path string) (*Demuxer, error) {
-	demux := new(Demuxer)
-	res, err := C.avformat_open_input(&(demux.context), C.CString(path), nil, nil)
-	if err != nil {
-		return nil, err
-	} else if res < 0 {
-		return nil, errors.New("Could not open source file " + path)
-	} else {
-		C.av_opt_set_int(unsafe.Pointer(demux.context), C.CString("max_analyze_duration"), C.int64_t(0), C.int(0))
-		return demux, nil
-	}
 }
 
 /* Find a track using its index */
@@ -77,8 +63,21 @@ func findTrack(tracks []*Track, index int) *Track {
 	return nil
 }
 
+/* Open FFMPEG specific demuxer */
+func (d *FFMPEGDemuxer) Open(path string) error {
+	res, err := C.avformat_open_input(&(d.context), C.CString(path), nil, nil)
+	if err != nil {
+		return err
+	} else if res < 0 {
+		return errors.New("Could not open source file " + path)
+	} else {
+		C.av_opt_set_int(unsafe.Pointer(d.context), C.CString("max_analyze_duration"), C.int64_t(0), C.int(0))
+		return nil
+	}
+}
+
 /* Find the first Video track for use as chunk size reference */
-func (d *Demuxer) findMainIndex() int {
+func (d *FFMPEGDemuxer) findMainIndex() int {
 	var stream *C.AVStream
 	for i := 0; i < int(d.context.nb_streams); i++ {
 		stream = C.get_stream(d.context.streams, C.int(i))
@@ -95,7 +94,7 @@ func packetFinalizer(s *Sample) {
 }
 
 /* Append a sample to a track */
-func (d *Demuxer) AppendSample(track *Track, stream *C.AVStream) {
+func (d *FFMPEGDemuxer) AppendSample(track *Track, stream *C.AVStream) {
 	sample := new(Sample)
 	/* Copy packet metadata in sample */
 	sample.pts = int(C.rescale_to_timebase(d.pkt.pts, stream.time_base))
@@ -116,7 +115,7 @@ func (d *Demuxer) AppendSample(track *Track, stream *C.AVStream) {
 Extract one chunk for each track from input, size of the chunk depends on the first
  video track found.
  */
-func (d *Demuxer) ExtractChunk(tracks *[]*Track) bool {
+func (d *FFMPEGDemuxer) ExtractChunk(tracks *[]*Track) bool {
 	var track *Track
 	var stream *C.AVStream
 	/* Find first video track to use as reference for chunk size */
@@ -145,7 +144,7 @@ func (d *Demuxer) ExtractChunk(tracks *[]*Track) bool {
 }
 
 /* Retrieve tracks from previously opened file using FFMPEG */
-func (d *Demuxer) GetTracks(tracks *[]*Track) error {
+func (d *FFMPEGDemuxer) GetTracks(tracks *[]*Track) error {
 	var track *Track
 	var stream *C.AVStream
 	/* Iterate over streams found by ffmpeg */
@@ -190,6 +189,6 @@ func (d *Demuxer) GetTracks(tracks *[]*Track) error {
 }
 
 /* Close demuxer and free FFMPEG specific data */
-func (d *Demuxer) Close() {
+func (d *FFMPEGDemuxer) Close() {
 	C.avformat_close_input(&d.context);
 }

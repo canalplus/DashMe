@@ -15,7 +15,7 @@ const (
 )
 
 /* /files handler */
-func filesRouteHandler(cache CacheManager, serverChan chan error) RouteHandler {
+func filesRouteHandler(cache *CacheManager, serverChan chan error) RouteHandler {
 	return func (w http.ResponseWriter, r *http.Request, params map[string]string) {
 		w.Header().Set("Content-Type", "application/json")
 		res, err := json.Marshal(cache.GetAvailables())
@@ -26,8 +26,26 @@ func filesRouteHandler(cache CacheManager, serverChan chan error) RouteHandler {
 	}
 }
 
+/* /files handler */
+func filesAddRouteHandler(cache *CacheManager, serverChan chan error) RouteHandler {
+	return func (w http.ResponseWriter, r *http.Request, params map[string]string) {
+		var av available
+		decoder := json.NewDecoder(r.Body)
+		err := decoder.Decode(&av)
+		if err == nil {
+			err = cache.AddAvailable(av)
+		}
+		if err != nil {
+			http.Error(w, "Invalid request !", http.StatusBadRequest)
+			serverChan <- err
+		} else {
+			fmt.Fprintf(w, "")
+		}
+	}
+}
+
 /* /manifest/<filename> handler */
-func manifestRouteHandler(cache CacheManager, serverChan chan error) RouteHandler {
+func manifestRouteHandler(cache *CacheManager, serverChan chan error) RouteHandler {
 	return func (w http.ResponseWriter, r *http.Request, params map[string]string) {
 		path, err := cache.GetManifest(params["filename"])
 		if err != nil {
@@ -40,7 +58,7 @@ func manifestRouteHandler(cache CacheManager, serverChan chan error) RouteHandle
 }
 
 /* /manifest/<filename>/<chunk> handler */
-func chunkRouteHandler(cache CacheManager, serverChan chan error) RouteHandler {
+func chunkRouteHandler(cache *CacheManager, serverChan chan error) RouteHandler {
 	return func (w http.ResponseWriter, r *http.Request, params map[string]string) {
 		path, err := cache.GetChunk(params["filename"], params["chunk"])
 		if err != nil {
@@ -89,9 +107,10 @@ func main() {
 	cache.Initialise(videoDir, cachedDir)
 	serverChan := make(chan error)
 	/* Initialise route handling */
-	server.addRoute("GET", "/files", filesRouteHandler(cache, serverChan))
-	server.addRoute("GET", "/dash/:filename/manifest.mpd", manifestRouteHandler(cache, serverChan))
-	server.addRoute("GET", "/dash/:filename/:chunk", chunkRouteHandler(cache, serverChan))
+	server.addRoute("GET", "/files", filesRouteHandler(&cache, serverChan))
+	server.addRoute("POST", "/files", filesAddRouteHandler(&cache, serverChan))
+	server.addRoute("GET", "/dash/:filename/manifest.mpd", manifestRouteHandler(&cache, serverChan))
+	server.addRoute("GET", "/dash/:filename/:chunk", chunkRouteHandler(&cache, serverChan))
 	/* Start file monitoring */
 	inotifyChan, err := StartInotify(&cache, videoDir)
 	if err != nil {

@@ -12,11 +12,17 @@ import (
   $CACHED_DIR/$FILENAME/chunk1.mp4
 */
 
+type available struct {
+	Proto string
+	Path  string
+	Name  string
+}
+
 /* Structure used to store cache specific information */
 type CacheManager struct {
 	videoDir   string
 	cachedDir  string
-	availables []string
+	availables []available
 	cached     []string
 	converter  DASHBuilder
 	converting map[string]bool
@@ -31,7 +37,11 @@ func (c *CacheManager) BuildAvailables() {
 	fileInfos, err := dir.Readdir(-1)
 	if err != nil { return }
 	for _, fi := range fileInfos {
-		c.availables = append(c.availables, utils.RemoveExtension(fi.Name()))
+		c.availables = append(c.availables, available{
+			Proto : "file",
+			Name : utils.RemoveExtension(fi.Name()),
+			Path : filepath.Join(c.videoDir, fi.Name()),
+		})
 	}
 }
 
@@ -64,22 +74,30 @@ func (c *CacheManager) Initialise(videoDir string, cachedDir string) {
 
 /* Return list of files that can be converted */
 func (c *CacheManager) GetAvailables() []string {
-	return c.availables
+	var res []string
+	for i := 0; i < len(c.availables); i++ {
+		res = append(res, c.availables[i].Name)
+	}
+	return res
 }
+
+/* Retrieve path to file according to stored filename */
+func (c *CacheManager) getPathFromFilename(filename string) string {
+	var i int
+	/* Retrieve corresponding available */
+	for i = 0; i < len(c.availables) && c.availables[i].Name != filename; i++ {}
+	if i == len(c.availables) {
+		return ""
+	}
+	return c.availables[i].Proto + "://" + c.availables[i].Path
+}
+
+/* Build DASH version of file if necessary */
 func (c *CacheManager) buildIfNeeded(filename string) error {
 	var i int
 	var err error
 	if c.converting[filename] {
 		return errors.New("File '" + filename + "' is being generated")
-	}
-	/* check that filename has a match in availables */
-	for i = 0; i < len(c.availables); i++ {
-		if c.availables[i] == filename {
-			break
-		}
-	}
-	if i == len(c.availables) {
-		return errors.New("File '" + filename + "' does not exist")
 	}
 	/* Test if filename has a match in cache */
 	for i = 0; i < len(c.cached); i++ {
@@ -87,12 +105,26 @@ func (c *CacheManager) buildIfNeeded(filename string) error {
 			break
 		}
 	}
-	/* Try to build file if none is found in cache */
-	if i == len(c.cached) {
-		c.converting[filename] = true
-		err = c.converter.Build(filename)
-		delete(c.converting, filename)
+	/* We have a cached version, so we don't need a build */
+	if i < len(c.cached) {
+		return nil
 	}
+	/* check that filename has a match in availables */
+	for i = 0; i < len(c.availables); i++ {
+		if c.availables[i].Name == filename {
+			break
+		}
+	}
+	if i == len(c.availables) {
+		return errors.New("File '" + filename + "' does not exist")
+	}
+	/* Try to build file */
+	c.converting[filename] = true
+	/* Get path to file */
+	inPath := c.getPathFromFilename(filename)
+	if inPath == "" { return errors.New("Can't find file for building !") }
+	err = c.converter.Build(inPath)
+	delete(c.converting, filename)
 	if err != nil { return err }
 	c.cached = append(c.cached, filename)
 	return nil
@@ -114,11 +146,23 @@ func (c *CacheManager) GetChunk(filename string, chunk string) (string, error) {
 	return filepath.Join(c.cachedDir, filename, chunk), nil
 }
 
-func (c *CacheManager) AddFile(path string) error {
-	c.availables = append(c.availables, utils.RemoveExtension(filepath.Base(path)))
+/* Add an available to the list for building */
+func (c *CacheManager) AddAvailable(av available) error {
+	c.availables = append(c.availables, av)
 	return nil
 }
 
+/* Add a file to the list of available file for building */
+func (c *CacheManager) AddFile(path string) error {
+	c.availables = append(c.availables, available{
+		Proto : "file",
+		Name : utils.RemoveExtension(filepath.Base(path)),
+		Path : path,
+	})
+	return nil
+}
+
+/* Remove file from cache (if it has been generated) and from availables */
 func (c *CacheManager) RemoveFile(path string) error {
 	filename := utils.RemoveExtension(filepath.Base(path))
 	/* If filename in cached remove directory and remove from list */
@@ -131,13 +175,14 @@ func (c *CacheManager) RemoveFile(path string) error {
 	}
 	/* Remove from availables list */
 	for i := 0; i < len(c.availables); i++ {
-		if c.availables[i] == filename {
+		if c.availables[i].Name == filename {
 			c.availables = append(c.availables[:i], c.availables[i + 1:]...)
 		}
 	}
 	return nil
 }
 
+/* */
 func (c *CacheManager) UpdateFile(path string) error {
 	/* Just remove directory, this will force a generation next time */
 	os.Remove(path)
