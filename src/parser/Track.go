@@ -25,6 +25,7 @@ type Track struct {
 	duration         int
 	modificationTime int
 	timescale        int
+	globalTimescale  int
 	width            int
 	height           int
 	sampleRate       int
@@ -36,6 +37,7 @@ type Track struct {
 	extradata        []byte
 	samples          []*Sample
 	chunksDuration   []int
+	chunksSize       []int
 	builder          Builder
 }
 
@@ -48,6 +50,7 @@ func (t *Track) Print() {
 	fmt.Println("\tmodificationTime : ", t.modificationTime)
 	fmt.Println("\tduration : ", t.duration)
 	fmt.Println("\ttimescale : ", t.timescale)
+	fmt.Println("\tgolbalTimescale : ", t.globalTimescale)
 	fmt.Println("\twidth : ", t.width)
 	fmt.Println("\theight : ", t.height)
 	fmt.Println("\tsampleRate : ", t.sampleRate)
@@ -187,13 +190,12 @@ func (t *Track) buildSampleChunk(samples []*Sample, path string) (int, error) {
 	defer f.Close()
 	/* Write generated atoms */
 	_, err = f.Write(b)
+	t.chunksSize = append(t.chunksSize, len(b))
 	return t.computeChunkDuration(), err
 }
 
 /* Initialise build for the track */
 func (t *Track) InitialiseBuild(path string) error {
-	/* Compute track bandwidth */
-	t.computeBandwidth()
 	t.builder = Builder{}
 	/* Initialise builder */
 	t.builder.Initialise()
@@ -214,7 +216,7 @@ func (t *Track) BuildInit(path string) error {
 	} else {
 		typename = "video"
 	}
-	return t.buildInitChunk(filepath.Join(path, "init_" + typename + ".mp4"))
+	return t.buildInitChunk(filepath.Join(path, "init_" + typename + strconv.Itoa(t.index) + ".mp4"))
 }
 
 /* Build a chunk for the track */
@@ -231,7 +233,7 @@ func (t *Track) BuildChunk(path string) error {
 		typename = "video"
 	}
 	/* Generate chunk file name */
-	filename := "chunk_" + typename + "_" + strconv.Itoa(t.currentDuration) + ".mp4"
+	filename := "chunk_" + typename + strconv.Itoa(t.index) + "_" + strconv.Itoa(t.currentDuration) + ".mp4"
 	/* Generate one chunk */
 	duration, err := t.buildSampleChunk(t.samples, filepath.Join(path, filename))
 	/* Append duration to list for manifest generation */
@@ -242,20 +244,8 @@ func (t *Track) BuildChunk(path string) error {
 }
 
 /* Build video track specific part of the manifest */
-func (t *Track) buildVideoManifest() string {
+func (t *Track) buildVideoManifestAdaptation() string {
 	res := `
-    <AdaptationSet
-      group="` + strconv.Itoa(t.index) + `"
-      mimeType="video/mp4"
-      par="16:9"
-      minBandwidth="` + strconv.Itoa(t.bandwidth) + `"
-      maxBandwidth="` + strconv.Itoa(t.bandwidth) + `"
-      minWidth="` + strconv.Itoa(t.width) + `"
-      maxWidth="` + strconv.Itoa(t.width) + `"
-      minHeight="` + strconv.Itoa(t.height) + `"
-      maxHeight="` + strconv.Itoa(t.height) + `"
-      segmentAlignment="true"
-      startWithSAP="1">
       <SegmentTemplate
         timescale="` + strconv.Itoa(t.timescale) + `"
         initialization="init_$RepresentationID$.mp4"
@@ -273,9 +263,14 @@ func (t *Track) buildVideoManifest() string {
 	}
 	res += `
         </SegmentTimeline>
-      </SegmentTemplate>
+      </SegmentTemplate>`
+	return res
+}
+
+func (t *Track) buildVideoManifestRepresentation() string {
+	res := `
       <Representation
-        id="video"
+        id="video` + strconv.Itoa(t.index) + `"
         bandwidth="` + strconv.Itoa(t.bandwidth) + `"
         codecs="` + t.codec + `"
         width="` + strconv.Itoa(t.width) + `"
@@ -284,20 +279,13 @@ func (t *Track) buildVideoManifest() string {
           schemeIdUri="urn:mpeg:dash:23003:3:audio_channel_configuration:2011"
           value="2">
         </AudioChannelConfiguration>
-      </Representation>
-    </AdaptationSet>`
+      </Representation>`
 	return res
 }
 
-/* Build audio track specific part of the manifest */
-func (t *Track) buildAudioManifest() string {
+
+func (t *Track) buildAudioManifestAdaptation() string {
 	res := `
-    <AdaptationSet
-      group="` + strconv.Itoa(t.index) + `"
-      mimeType="audio/mp4"
-      minBandwidth="` + strconv.Itoa(t.bandwidth) + `"
-      maxBandwidth="` + strconv.Itoa(t.bandwidth) + `"
-      segmentAlignment="true">
       <SegmentTemplate
         timescale="` + strconv.Itoa(t.timescale) + `"
         initialization="init_$RepresentationID$.mp4"
@@ -315,9 +303,15 @@ func (t *Track) buildAudioManifest() string {
 	}
 	res += `
         </SegmentTimeline>
-      </SegmentTemplate>
+      </SegmentTemplate>`
+	return res
+}
+
+/* Build audio track specific part of the manifest */
+func (t *Track) buildAudioManifestRepresentation() string {
+	res := `
       <Representation
-        id="audio"
+        id="audio` + strconv.Itoa(t.index) + `"
         bandwidth="` + strconv.Itoa(t.bandwidth) + `"
         codecs="` + t.codec + `"
         audioSamplingRate="` + strconv.Itoa(t.sampleRate) + `">
@@ -325,20 +319,24 @@ func (t *Track) buildAudioManifest() string {
           schemeIdUri="urn:mpeg:dash:23003:3:audio_channel_configuration:2011"
           value="2">
         </AudioChannelConfiguration>
-      </Representation>
-    </AdaptationSet>`
+      </Representation>`
 	return res
 }
 
 /* Compute bandwidth for a track */
 func (t *Track) computeBandwidth() {
+	if t.bandwidth > 0 {
+		return
+	}
 	totalDuration := 0
 	totalSize := 0
-	for _, sample := range t.samples {
-		totalDuration += sample.duration
-		totalSize += int(sample.size)
+	for _, duration := range t.chunksDuration {
+		totalDuration += duration
 	}
-	totalDuration /= t.timescale
+	for _, size := range t.chunksSize {
+		totalSize += size
+	}
+	totalDuration /= t.globalTimescale
 	if totalDuration > 0 {
 		t.bandwidth =  totalSize / totalDuration
 	} else {
@@ -367,11 +365,20 @@ func (t *Track) extractCodec() {
 
 /* Build track specific part of the manifest */
 func (t *Track) BuildAdaptationSet() string {
+	t.computeBandwidth()
 	t.extractCodec()
 	if t.isAudio {
-		return t.buildAudioManifest()
+		return t.buildAudioManifestAdaptation()
 	} else {
-		return t.buildVideoManifest()
+		return t.buildVideoManifestAdaptation()
+	}
+}
+
+func (t *Track) BuildRepresentation() string {
+	if t.isAudio {
+		return t.buildAudioManifestRepresentation()
+	} else {
+		return t.buildVideoManifestRepresentation()
 	}
 }
 
@@ -383,7 +390,7 @@ func (t *Track) SetTimeFields() {
 
 /* Return track duration */
 func (t *Track) Duration() float64 {
-	return float64(t.duration) / float64(t.timescale)
+	return float64(t.duration) / float64(t.globalTimescale)
 }
 
 /* Return largest duration of segments in track */
@@ -394,7 +401,7 @@ func (t *Track) MaxChunkDuration() float64 {
 			duration = t.chunksDuration[i]
 		}
 	}
-	return float64(duration) / float64(t.timescale)
+	return float64(duration) / float64(t.globalTimescale)
 }
 
 /* Return largest duration of segments in track */
@@ -415,4 +422,20 @@ func (t *Track) Clean() {
 	}
 	t.samples = t.samples[:0]
 	t.samples = nil
+}
+
+func (t *Track) IsAudio() bool {
+	return t.isAudio
+}
+
+func (t *Track) Bandwidth() int {
+	return t.bandwidth
+}
+
+func (t *Track) Width() int {
+	return t.width
+}
+
+func (t *Track) Height() int {
+	return t.height
 }

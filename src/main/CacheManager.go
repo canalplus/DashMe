@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"utils"
+	"parser"
 	"errors"
 	"path/filepath"
 )
@@ -16,6 +17,16 @@ type available struct {
 	Proto string
 	Path  string
 	Name  string
+}
+
+func (a available) checkProto() bool {
+	authorized := parser.GetAuthorizedProtocols()
+	for _, proto := range authorized {
+		if proto == a.Proto {
+			return true
+		}
+	}
+	return false
 }
 
 /* Structure used to store cache specific information */
@@ -123,7 +134,7 @@ func (c *CacheManager) buildIfNeeded(filename string) error {
 	/* Get path to file */
 	inPath := c.getPathFromFilename(filename)
 	if inPath == "" { return errors.New("Can't find file for building !") }
-	err = c.converter.Build(inPath)
+	err = c.converter.Build(inPath, filename)
 	delete(c.converting, filename)
 	if err != nil { return err }
 	c.cached = append(c.cached, filename)
@@ -148,6 +159,9 @@ func (c *CacheManager) GetChunk(filename string, chunk string) (string, error) {
 
 /* Add an available to the list for building */
 func (c *CacheManager) AddAvailable(av available) error {
+	if !(av.checkProto()) {
+		return errors.New("Incorrect protocol '" + av.Proto + "' !")
+	}
 	c.availables = append(c.availables, av)
 	return nil
 }
@@ -182,7 +196,7 @@ func (c *CacheManager) RemoveFile(path string) error {
 	return nil
 }
 
-/* */
+/* Signal that a file on disk has been updated and the generated cache is out of date */
 func (c *CacheManager) UpdateFile(path string) error {
 	/* Just remove directory, this will force a generation next time */
 	os.Remove(path)

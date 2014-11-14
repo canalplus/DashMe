@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"utils"
 	"errors"
 	"parser"
 	"runtime"
@@ -31,9 +30,28 @@ func (b *DASHBuilder) buildManifest() (string, error) {
 	duration := float64(0)
 	maxChunkDuration := float64(0)
 	minBufferTime := float64(0)
+	minVideoBandwidth := int(^uint(0) >> 1)
+	maxVideoBandwidth := 0
+	minAudioBandwidth := int(^uint(0) >> 1)
+	maxAudioBandwidth := 0
+	minWidth := int(^uint(0) >> 1)
+	maxWidth := 0
+	minHeight := int(^uint(0) >> 1)
+	maxHeight := 0
 	if len(b.tracks) > 0 {
 		duration = b.tracks[0].Duration()
 		maxChunkDuration = b.tracks[0].MaxChunkDuration()
+		if b.tracks[0].IsAudio() {
+			minAudioBandwidth = b.tracks[0].Bandwidth()
+			maxAudioBandwidth = b.tracks[0].Bandwidth()
+		} else {
+			minVideoBandwidth = b.tracks[0].Bandwidth()
+			maxVideoBandwidth = b.tracks[0].Bandwidth()
+			minWidth = b.tracks[0].Width()
+			maxWidth = b.tracks[0].Width()
+			minHeight = b.tracks[0].Height()
+			maxHeight = b.tracks[0].Height()
+		}
 	}
 	for i := 1; i < len(b.tracks); i++ {
 		if b.tracks[i].Duration() < duration {
@@ -45,6 +63,33 @@ func (b *DASHBuilder) buildManifest() (string, error) {
 		if b.tracks[i].MinBufferTime() > minBufferTime {
 			minBufferTime = b.tracks[i].MinBufferTime()
 		}
+		if b.tracks[i].IsAudio() {
+			if minAudioBandwidth > b.tracks[i].Bandwidth() {
+				minAudioBandwidth = b.tracks[i].Bandwidth()
+			}
+			if maxAudioBandwidth < b.tracks[i].Bandwidth() {
+				maxAudioBandwidth = b.tracks[i].Bandwidth()
+			}
+		} else {
+			if minVideoBandwidth > b.tracks[i].Bandwidth() {
+				minVideoBandwidth = b.tracks[i].Bandwidth()
+			}
+			if maxVideoBandwidth < b.tracks[i].Bandwidth() {
+				maxVideoBandwidth = b.tracks[i].Bandwidth()
+			}
+			if minWidth > b.tracks[i].Width() {
+				minWidth = b.tracks[i].Width()
+			}
+			if maxWidth < b.tracks[i].Width() {
+				maxWidth = b.tracks[i].Width()
+			}
+			if minHeight > b.tracks[i].Height() {
+				minHeight = b.tracks[i].Height()
+			}
+			if maxHeight < b.tracks[i].Height() {
+				maxHeight = b.tracks[i].Height()
+			}
+		}
 	}
 	manifest := `<?xml version="1.0" encoding="utf-8"?>
 <MPD
@@ -54,11 +99,64 @@ func (b *DASHBuilder) buildManifest() (string, error) {
   type="static"
   mediaPresentationDuration="PT` + strconv.FormatFloat(duration, 'f', -1, 64) + `S"
   maxSegmentDuration="PT` + strconv.FormatFloat(maxChunkDuration, 'f', -1, 64) + `S"
-  profiles="urn:mpeg:dash:profile:isoff-live:2011,urn:com:dashif:dash264,urn:hbbtv:dash:profile:isoff-live:2012">
-  <Period>`
-	for i := 0; i < len(b.tracks); i++ {
-		manifest += b.tracks[i].BuildAdaptationSet()
+  profiles="urn:com:dashif:dash264">
+  <Period>
+    <AdaptationSet
+      group="1"
+      mimeType="video/mp4"
+      par="16:9"`
+	if (minVideoBandwidth != maxVideoBandwidth) {
+		manifest += `
+      minBandwidth="` + strconv.Itoa(minVideoBandwidth) + `"
+      maxBandwidth="` + strconv.Itoa(maxVideoBandwidth) + `"`
+	} else {
+		manifest += `
+      bandwidth="` + strconv.Itoa(minVideoBandwidth) + `"`
 	}
+	manifest += `
+      minWidth="` + strconv.Itoa(minWidth) + `"
+      maxWidth="` + strconv.Itoa(maxWidth) + `"
+      minHeight="` + strconv.Itoa(minHeight) + `"
+      maxHeight="` + strconv.Itoa(maxHeight) + `"
+      segmentAlignment="true"
+      startWithSAP="1">`
+	adaptationDone := false
+	for i := 0; i < len(b.tracks); i++ {
+		if !b.tracks[i].IsAudio(){
+			if !adaptationDone {
+				manifest += b.tracks[i].BuildAdaptationSet()
+				adaptationDone = true
+			}
+			manifest += b.tracks[i].BuildRepresentation()
+		}
+	}
+	manifest += `
+    </AdaptationSet>
+    <AdaptationSet
+      group="2"
+      mimeType="audio/mp4"`
+	if (minAudioBandwidth != maxAudioBandwidth) {
+		manifest += `
+      minBandwidth="` + strconv.Itoa(minAudioBandwidth) + `"
+      maxBandwidth="` + strconv.Itoa(maxAudioBandwidth) + `"`
+	} else {
+		manifest += `
+      bandwidth="` + strconv.Itoa(minAudioBandwidth) + `"`
+	}
+	manifest += `
+      segmentAlignment="true">`
+	adaptationDone = false
+	for i := 0; i < len(b.tracks); i++ {
+		if b.tracks[i].IsAudio() {
+			if !adaptationDone {
+				manifest += b.tracks[i].BuildAdaptationSet()
+				adaptationDone = true
+			}
+			manifest += b.tracks[i].BuildRepresentation()
+		}
+	}
+	manifest += `
+    </AdaptationSet>`
 	manifest += `
   </Period>
 </MPD>
@@ -92,11 +190,10 @@ func (b *DASHBuilder) buildChunks(outPath string) {
 }
 
 /* Build a DASH version of a file (manifest and chunks) */
-func (b *DASHBuilder) Build(inPath string) error {
+func (b *DASHBuilder) Build(inPath string, filename string) error {
 	var demuxer parser.Demuxer
 	var err error
 	var manifest string
-	filename := utils.RemoveExtension(filepath.Base(inPath))
 	/* Clean up if necessary */
 	if len(b.tracks) > 0 {
 		b.tracks = nil

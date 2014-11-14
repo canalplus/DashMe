@@ -58,7 +58,7 @@ func (s *Server) getRouteHandler(method string, path string, params *map[string]
 func (s *Server) setCORSHeaders(w http.ResponseWriter, path string) {
 	var i int
 	var methods []string
-	/* Find corresponding route */
+	/* Find corresponding routes */
 	for i = 0; i < len(s.routes); i++ {
 		if utils.ParseURL(s.routes[i].pattern, path, nil) {
 			methods = append(methods, s.routes[i].method)

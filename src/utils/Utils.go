@@ -184,3 +184,30 @@ func DisplayMemStats() {
 	fmt.Printf("EnableGC : %t\n", stats.EnableGC)
 	fmt.Printf("DebugGC : %t\n", stats.DebugGC)
 }
+
+type Queue struct {
+	data []interface{}
+}
+
+func (s *Queue) Size() int {
+	return len(s.data)
+}
+
+func (s *Queue) Empty() bool {
+	return len(s.data) == 0
+}
+
+func (s *Queue) Pop() interface{} {
+	res := s.data[0]
+	s.data = s.data[1:]
+	return res
+}
+
+func (s *Queue) Push(elms ...interface{}) {
+	s.data = append(s.data, elms...)
+}
+
+func (s *Queue) Clear() {
+	s.data = s.data[:0]
+	s.data = nil
+}

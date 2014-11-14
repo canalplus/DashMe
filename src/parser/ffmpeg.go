@@ -6,6 +6,7 @@ package parser
 #include <libavutil/opt.h>
 #include <libavcodec/avcodec.h>
 #include <string.h>
+#include <stdlib.h>
 
 #define TIMEBASE_Q (AVRational){1, 90000}
 
@@ -14,9 +15,30 @@ AVStream* get_stream(AVStream **streams, int pos)
   return streams[pos];
 }
 
-int64_t rescale_to_timebase(int64_t val, AVRational timebase)
+int64_t rescale_to_generic_timebase(int64_t val, AVRational timebase)
 {
   return av_rescale_q(val, timebase, TIMEBASE_Q);
+}
+
+int64_t rescale_to_timebase(int64_t val, int in_tb, int out_tb)
+{
+  AVRational in_r;
+  AVRational out_r;
+
+  in_r.num = 1;
+  in_r.den = in_tb;
+
+  out_r.num = 1;
+  out_r.den = out_tb;
+
+  return av_rescale_q(val, in_r, out_r);
+}
+
+char *convert_byte_slice(void *buffer, int size)
+{
+  char *res = malloc(size);
+  memcpy(res, (char *)buffer, size);
+  return res;
 }
 */
 import "C"
@@ -46,6 +68,27 @@ type Sample struct {
 func FFMPEGInitialise() error {
 	_, err := C.av_register_all()
 	return err
+}
+
+func CInt(val int) C.int {
+	return C.int(val)
+}
+
+func CArray(buffer []byte) unsafe.Pointer {
+	if len(buffer) > 0 {
+		return unsafe.Pointer(C.convert_byte_slice(unsafe.Pointer(&buffer[0]), C.int(len(buffer))))
+	}
+	return nil
+}
+
+func CFree(ptr unsafe.Pointer) {
+	if ptr != nil {
+		C.free(ptr)
+	}
+}
+
+func TimebaseRescale(val int, tbIn int, tbOut int) int {
+	return int(C.rescale_to_timebase(C.int64_t(val), C.int(tbIn), C.int(tbOut)))
 }
 
 /* Return byte data from a sample */
@@ -97,9 +140,9 @@ func packetFinalizer(s *Sample) {
 func (d *FFMPEGDemuxer) AppendSample(track *Track, stream *C.AVStream) {
 	sample := new(Sample)
 	/* Copy packet metadata in sample */
-	sample.pts = int(C.rescale_to_timebase(d.pkt.pts, stream.time_base))
-	sample.dts = int(C.rescale_to_timebase(d.pkt.dts, stream.time_base))
-	sample.duration = int(C.rescale_to_timebase(C.int64_t(d.pkt.duration), stream.time_base))
+	sample.pts = int(C.rescale_to_generic_timebase(d.pkt.pts, stream.time_base))
+	sample.dts = int(C.rescale_to_generic_timebase(d.pkt.dts, stream.time_base))
+	sample.duration = int(C.rescale_to_generic_timebase(C.int64_t(d.pkt.duration), stream.time_base))
 	sample.keyFrame = (d.pkt.flags) & 0x1 > 0
 	/* Copy packet data in sample */
 	sample.size = d.pkt.size
@@ -177,7 +220,8 @@ func (d *FFMPEGDemuxer) GetTracks(tracks *[]*Track) error {
 		}
 		/* Set common properties in track structure */
 		track.SetTimeFields()
-		track.duration = int(C.rescale_to_timebase(stream.duration, stream.time_base))
+		track.duration = int(C.rescale_to_generic_timebase(stream.duration, stream.time_base))
+		track.globalTimescale = 90000
 		track.timescale = 90000
 		track.extradata = C.GoBytes(unsafe.Pointer(stream.codec.extradata), stream.codec.extradata_size)
 		track.index = int(stream.index)

@@ -230,10 +230,10 @@ func buildMVHD(t Track) ([]byte, error) {
 		byte((t.modificationTime >> 8) & 0xFF),
 		byte((t.modificationTime) & 0xFF),
 		/* Timescale */
-		byte((t.timescale >> 24) & 0xFF),
-		byte((t.timescale >> 16) & 0xFF),
-		byte((t.timescale >> 8) & 0xFF),
-		byte((t.timescale) & 0xFF),
+		byte((t.globalTimescale >> 24) & 0xFF),
+		byte((t.globalTimescale >> 16) & 0xFF),
+		byte((t.globalTimescale >> 8) & 0xFF),
+		byte((t.globalTimescale) & 0xFF),
 		/* Duration */
 		byte((t.duration >> 24) & 0xFF),
 		byte((t.duration >> 16) & 0xFF),
