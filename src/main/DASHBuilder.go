@@ -39,6 +39,7 @@ func (b *DASHBuilder) buildManifest() (string, error) {
 	minHeight := int(^uint(0) >> 1)
 	maxHeight := 0
 	if len(b.tracks) > 0 {
+		b.tracks[0].ComputePrivateInfos()
 		duration = b.tracks[0].Duration()
 		maxChunkDuration = b.tracks[0].MaxChunkDuration()
 		if b.tracks[0].IsAudio() {
@@ -54,6 +55,7 @@ func (b *DASHBuilder) buildManifest() (string, error) {
 		}
 	}
 	for i := 1; i < len(b.tracks); i++ {
+		b.tracks[i].ComputePrivateInfos()
 		if b.tracks[i].Duration() < duration {
 			duration = b.tracks[i].Duration()
 		}

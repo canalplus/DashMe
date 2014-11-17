@@ -24,16 +24,16 @@ func dashConstructor() Demuxer {
 	return new(DASHDemuxer)
 }
 
-/*func smoothConstructor() Demuxer {
-	return new(SMOOTHDemuxer)
-}*/
+func smoothConstructor() Demuxer {
+	return new(SmoothDemuxer)
+}
 
 /* Initialise specifics for each demuxer interface */
 func InitialiseDemuxers() error {
 	demuxerConstructors = make(map[string]DemuxerConstructor)
 	demuxerConstructors["file"] = fileConstructor
 	demuxerConstructors["dash"] = dashConstructor
-	//demuxerConstructors["smooth"] = smoothConstructor
+	demuxerConstructors["smooth"] = smoothConstructor
 	err := FFMPEGInitialise()
 	return err
 }

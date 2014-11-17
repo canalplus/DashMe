@@ -274,12 +274,7 @@ func (t *Track) buildVideoManifestRepresentation() string {
         bandwidth="` + strconv.Itoa(t.bandwidth) + `"
         codecs="` + t.codec + `"
         width="` + strconv.Itoa(t.width) + `"
-        height="` + strconv.Itoa(t.height) + `">
-        <AudioChannelConfiguration
-          schemeIdUri="urn:mpeg:dash:23003:3:audio_channel_configuration:2011"
-          value="2">
-        </AudioChannelConfiguration>
-      </Representation>`
+        height="` + strconv.Itoa(t.height) + `" />`
 	return res
 }
 
@@ -363,10 +358,14 @@ func (t *Track) extractCodec() {
 	}
 }
 
-/* Build track specific part of the manifest */
-func (t *Track) BuildAdaptationSet() string {
+/* Extract codec info and compute bandwidth */
+func (t *Track) ComputePrivateInfos() {
 	t.computeBandwidth()
 	t.extractCodec()
+}
+
+/* Build track specific part of the manifest */
+func (t *Track) BuildAdaptationSet() string {
 	if t.isAudio {
 		return t.buildAudioManifestAdaptation()
 	} else {

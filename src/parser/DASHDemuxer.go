@@ -3,6 +3,7 @@ package parser
 import (
 	"io"
 	//"fmt"
+	"sync"
 	"utils"
 	"bytes"
 	"regexp"
@@ -79,6 +80,7 @@ type DASHDemuxer struct {
 	defaultSampleDuration int
 	mediaTime int
 	baseMediaDecodeTime int
+	mutex sync.Mutex
 }
 
 func (d *DASHDemuxer) Open(path string) error {
@@ -334,11 +336,14 @@ func (d *DASHDemuxer) parseDASHFile(url string, track *Track) error {
 		return err
 	}
 	reader := bytes.NewReader(buffer)
+	d.mutex.Lock()
 	for {
 		tag, err := utils.ReadAtomHeader(reader, &size)
 		if err != nil && err != io.EOF {
+			d.mutex.Unlock()
 			return err
 		} else if size == 0 || err == io.EOF {
+			d.mutex.Unlock()
 			return nil
 		}
 		if d.atomParsers[tag] != nil {
@@ -347,6 +352,7 @@ func (d *DASHDemuxer) parseDASHFile(url string, track *Track) error {
 			reader.Seek(int64(size - 8), 1)
 		}
 	}
+	d.mutex.Unlock()
 	return nil
 }
 
@@ -464,6 +470,7 @@ func (d *DASHDemuxer) Close() {
 
 func (d *DASHDemuxer) ExtractChunk(tracks *[]*Track) bool {
 	var track *Track
+	var waitList []chan error
 	res := false
 	for k := range d.chunksURL {
 		res = res || !d.chunksURL[k].Empty()
@@ -479,11 +486,16 @@ func (d *DASHDemuxer) ExtractChunk(tracks *[]*Track) bool {
 		}
 		if track != nil {
 			url := d.chunksURL[k].Pop().(string)
-			err := d.parseDASHFile(url, track)
-			if err != nil {
-				return false
-			}
+			c := make(chan error)
+			go func(c chan error, track *Track) {
+				c <- d.parseDASHFile(url, track)
+			}(c, track)
+			waitList = append(waitList, c)
 		}
+	}
+	for i := 0; i < len(waitList); i++ {
+		<- waitList[i]
+		close(waitList[i])
 	}
 	return res
 }
