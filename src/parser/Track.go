@@ -17,6 +17,27 @@ type Builder struct {
 	builders map[string]AtomBuilder
 }
 
+type SubSampleEncryption struct {
+	clear     int
+	encrypted int
+}
+
+type SampleEncryption struct {
+	initializationVector []byte
+	subEncrypt []SubSampleEncryption
+}
+
+type pss struct {
+	systemId    string
+	privateData []byte
+}
+
+type EncryptionInfo struct {
+	pssList    []pss
+	subEncrypt bool
+	keyId       string
+}
+
 /* Structure representing a track inside an input file */
 type Track struct {
 	index            int
@@ -38,6 +59,7 @@ type Track struct {
 	samples          []*Sample
 	chunksDuration   []int
 	chunksSize       []int
+	encryptInfos     *EncryptionInfo
 	builder          Builder
 }
 
@@ -58,6 +80,7 @@ func (t *Track) Print() {
 	fmt.Println("\tcolorTableId : ", t.colorTableId)
 	fmt.Println("\tbandwidth: ", t.bandwidth)
 	fmt.Println("\tcodec: ", t.codec)
+	fmt.Println("\tencrypted : ", (t.encryptInfos != nil))
 	fmt.Println("\tsamples count : ", len(t.samples))
 }
 
@@ -98,10 +121,20 @@ func (b *Builder) Initialise() {
 	b.builders["tfdt"] = buildTFDT /**/
 	b.builders["trun"] = buildTRUN /**/
 	b.builders["mdat"] = buildMDAT /**/
-	b.builders["mp4a"] = buildMP4A /**/
+	b.builders["mp4a"] = buildMP4AENCA /**/
 	b.builders["esds"] = buildESDS /**/
 	b.builders["avcC"] = buildAVCC /**/
-	b.builders["avc1"] = buildAVC1 /**/
+	b.builders["avc1"] = buildAVC1ENCV /**/
+	b.builders["sinf"] = buildSINF /**/
+	b.builders["frma"] = buildFRMA /**/
+	b.builders["schm"] = buildSCHM /**/
+	b.builders["schi"] = buildSCHI /**/
+	b.builders["tenc"] = buildTENC /**/
+	b.builders["enca"] = buildMP4AENCA /**/
+	b.builders["encv"] = buildAVC1ENCV /**/
+	b.builders["senc"] = buildSENC
+	b.builders["saiz"] = buildSAIZ
+	b.builders["saio"] = buildSAIO
 }
 
 /* Build atoms from their tag passed as string */
@@ -121,12 +154,22 @@ func (b Builder) build(t Track, atoms ...string) ([]byte, error) {
 
 /* Compute size of to be generated MOOF atom */
 func (t *Track) computeMOOFSize() int {
-	return 16 + /* MFHD size */
+	res := 16 + /* MFHD size */
 		8 + /* TRAF header size */
 		16 + /* TFHD size*/
 		16 + /* TFDT size */
 		20 + 16 * len(t.samples) + /* TRUN size */
 		8 /* MOOF header size */
+	if t.encryptInfos != nil {
+		sencSize := 0
+		for i := 0; i < len(t.samples); i++ {
+			sencSize += 2 + len(t.samples[i].encrypt.initializationVector) + 6 * len(t.samples[i].encrypt.subEncrypt)
+		}
+		res += 16 + sencSize + /* SENC size */
+			17 + len(t.samples) + /* SAIZ size */
+			20 /* SAIO size */
+	}
+	return res
 }
 
 /* Compute duration of to be generated chunk */

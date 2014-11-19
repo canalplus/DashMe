@@ -1,6 +1,8 @@
+
 package parser
 
 import "utils"
+import "encoding/hex"
 
 /* Function type used for atom generation */
 type AtomBuilder func(t Track) ([]byte, error)
@@ -66,9 +68,32 @@ func buildMVEX(t Track) ([]byte, error) {
 	return utils.BuildAtom("mvex", b)
 }
 
+func buildPSSH(systemId string, privateData []byte) ([]byte, error) {
+	b, err := hex.DecodeString(systemId)
+	if err != nil { return nil, err }
+	size := len(privateData)
+	b = append(b, []byte{
+		byte((size >> 24) & 0xFF),
+		byte((size >> 16) & 0xFF),
+		byte((size >> 8) & 0xFF),
+		byte((size) & 0xFF),
+	}...)
+	b = append(b, privateData...)
+	return utils.BuildAtom("pssh", append([]byte{
+		0x0, 0x0, 0x0, 0x0,
+	}, b...))
+}
+
 func buildMOOV(t Track) ([]byte, error) {
 	b, err := t.buildAtoms("mvhd", "mvex", "trak")
 	if err != nil { return nil, err }
+	if t.encryptInfos != nil {
+		for i := 0; i < len(t.encryptInfos.pssList); i++ {
+			pssh, err := buildPSSH(t.encryptInfos.pssList[i].systemId, t.encryptInfos.pssList[i].privateData)
+			if err != nil { return nil, err }
+			b = append(b, pssh...)
+		}
+	}
 	return utils.BuildAtom("moov", b)
 }
 
@@ -89,21 +114,148 @@ func buildMOOF(t Track) ([]byte, error) {
 }
 
 func buildTRAF(t Track) ([]byte, error) {
-	b, err := t.buildAtoms("tfhd", "tfdt", "trun")
+	var b []byte
+	var err error
+	if t.encryptInfos != nil {
+		b, err = t.buildAtoms("tfhd", "tfdt", "trun", "senc", "saiz", "saio")
+	} else {
+		b, err = t.buildAtoms("tfhd", "tfdt", "trun")
+	}
 	if err != nil {
 		return nil, err
 	}
 	return utils.BuildAtom("traf", b)
 }
 
+func buildSENC(t Track) ([]byte, error) {
+	flags := 0
+	length := len(t.samples)
+	if t.encryptInfos.subEncrypt {
+		flags = 0x2
+	}
+	b := []byte{
+		0x0, 0x0, 0x0, byte(flags),
+	}
+	b = append(b, []byte{
+		byte((length >> 24) & 0xFF),
+		byte((length >> 16) & 0xFF),
+		byte((length >> 8) & 0xFF),
+		byte((length) & 0xFF),
+	}...)
+	for i := 0; i < len(t.samples); i++ {
+		length = len(t.samples[i].encrypt.subEncrypt)
+		b = append(b, t.samples[i].encrypt.initializationVector...)
+		b = append(b, []byte{
+			byte((length >> 8) & 0xFF),
+			byte((length) & 0xFF),
+		}...)
+		for j := 0; t.encryptInfos.subEncrypt && j < length; j++ {
+			clear := t.samples[i].encrypt.subEncrypt[j].clear
+			encrypted := t.samples[i].encrypt.subEncrypt[j].encrypted
+			b = append(b, []byte{
+				byte((clear >> 8) & 0xFF),
+				byte((clear) & 0xFF),
+				byte((encrypted >> 24) & 0xFF),
+				byte((encrypted >> 16) & 0xFF),
+				byte((encrypted >> 8) & 0xFF),
+				byte((encrypted) & 0xFF),
+			}...)
+		}
+	}
+	return utils.BuildAtom("senc", b)
+}
+
+func buildSAIZ(t Track) ([]byte, error) {
+	length := len(t.samples)
+	b := []byte{
+		0x0, 0x0, 0x0, 0x0, 0x0,
+		byte((length >> 24) & 0xFF),
+		byte((length >> 16) & 0xFF),
+		byte((length >> 8) & 0xFF),
+		byte((length) & 0xFF),
+	}
+	for i := 0; i < len(t.samples); i++ {
+		size := len(t.samples[i].encrypt.initializationVector) + 2
+		size += len(t.samples[i].encrypt.subEncrypt) * 6
+		b = append(b, byte(size))
+	}
+	return utils.BuildAtom("saiz", b)
+}
+
+func buildSAIO(t Track) ([]byte, error) {
+	offset := 8 + /* MOOF header */
+		16 + /* MFHD */
+		8 + /* TRAF header */
+		16 + /* TFHD */
+		16 + /* TFDT */
+	 	20 + 16 * len(t.samples) + /* TRUN size */
+		16 /* SENC Header */
+	return utils.BuildAtom("saio", []byte{
+		0x0, 0x0, 0x0, 0x0,
+		0x0, 0x0, 0x0, 0x1,
+		byte((offset >> 24) & 0xFF),
+		byte((offset >> 16) & 0xFF),
+		byte((offset >> 8) & 0xFF),
+		byte((offset) & 0xFF),
+	})
+}
+
+func buildTENC(t Track) ([]byte, error) {
+	b, err := hex.DecodeString(t.encryptInfos.keyId)
+	if err != nil { return nil, err }
+	return utils.BuildAtom("tenc", append([]byte{
+		0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+		0x1, 0x8,
+	}, b...))
+}
+
+func buildSCHI(t Track) ([]byte, error) {
+	b, err := t.buildAtoms("tenc")
+	if err != nil { return nil, err }
+	return utils.BuildAtom("schi", b)
+}
+
+func buildSCHM(t Track) ([]byte, error) {
+	return utils.BuildAtom("schm", []byte{
+		0x0, 0x0, 0x0, 0x0,
+		byte('c'), byte('e'), byte('n'), byte('c'),
+		0x0, 0x1, 0x0, 0x0,
+	})
+}
+
+func buildFRMA(t Track) ([]byte, error) {
+	var name string
+	if t.isAudio {
+		name = "mp4a"
+	} else {
+		name = "avc1"
+	}
+	return utils.BuildAtom("frma", []byte(name))
+}
+
+func buildSINF(t Track) ([]byte, error) {
+	b, err := t.buildAtoms("frma", "schm", "schi")
+	if err != nil { return nil, err }
+	return utils.BuildAtom("sinf", b)
+}
+
 func buildAVCC(t Track) ([]byte, error) {
 	return utils.BuildAtom("avcC", t.extradata)
 }
 
-func buildAVC1(t Track) ([]byte, error) {
-	b, err := t.buildAtoms("avcC")
+func buildAVC1ENCV(t Track) ([]byte, error) {
+	var b []byte
+	var err error
+	var name string
+	if t.encryptInfos == nil {
+		name = "avc1"
+		b, err = t.buildAtoms("avcC")
+	} else {
+		name = "encv"
+		b, err = t.buildAtoms("avcC", "sinf")
+	}
 	if err != nil { return nil, err }
-	return utils.BuildAtom("avc1", append([]byte{
+	return utils.BuildAtom(name, append([]byte{
 		/* Reserved */
 		0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
 		/* index */
@@ -156,10 +308,19 @@ func buildESDS(t Track) ([]byte, error) {
 	return utils.BuildAtom("esds",  data)
 }
 
-func buildMP4A(t Track) ([]byte, error) {
-	b, err := t.buildAtoms("esds")
+func buildMP4AENCA(t Track) ([]byte, error) {
+	var b []byte
+	var err error
+	var name string
+	if t.encryptInfos == nil {
+		name = "mp4a"
+		b, err = t.buildAtoms("esds")
+	} else {
+		name = "enca"
+		b, err = t.buildAtoms("esds", "sinf")
+	}
 	if err != nil { return nil, err }
-	return utils.BuildAtom("mp4a", append([]byte{
+	return utils.BuildAtom(name, append([]byte{
 		/* Reserved */
 		0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
 		/* index */
@@ -188,10 +349,18 @@ func buildMP4A(t Track) ([]byte, error) {
 func buildSTSD(t Track) ([]byte, error) {
 	var b []byte
 	var err error
-	if t.isAudio {
-		b, err = t.buildAtoms("mp4a")
+	if t.encryptInfos == nil {
+		if t.isAudio {
+			b, err = t.buildAtoms("mp4a")
+		} else {
+			b, err = t.buildAtoms("avc1")
+		}
 	} else {
-		b, err = t.buildAtoms("avc1")
+		if t.isAudio {
+			b, err = t.buildAtoms("enca")
+		} else {
+			b, err = t.buildAtoms("encv")
+		}
 	}
 	if err != nil { return nil, err }
 	return utils.BuildAtom("stsd", append([]byte{
@@ -504,7 +673,7 @@ func buildMDAT(t Track) ([]byte, error) {
 	var b []byte
 	for i := 0; i < len(t.samples); i++ {
 	 	b = append(b, t.samples[i].GetData()...)
-	 }
+	}
 	return utils.BuildAtom("mdat", b)
 }
 

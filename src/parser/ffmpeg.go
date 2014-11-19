@@ -62,6 +62,7 @@ type Sample struct {
 	data	 unsafe.Pointer
 	size     C.int
 	pkt      *C.AVPacket
+	encrypt  *SampleEncryption
 }
 
 /* Called when starting the program, initialise FFMPEG demuxers */

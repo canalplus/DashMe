@@ -2,10 +2,10 @@ package parser
 
 import (
 	"io"
-	//"fmt"
 	"sync"
 	"utils"
 	"bytes"
+	"regexp"
 	"strings"
 	"strconv"
 	"runtime"
@@ -13,7 +13,13 @@ import (
 	"io/ioutil"
 	"encoding/xml"
 	"encoding/hex"
+	"unicode/utf16"
 	"path/filepath"
+	"encoding/base64"
+)
+
+var (
+	PlayReadyRegexp = regexp.MustCompile(`^.+<KID>([^<]+)</KID>.+$`)
 )
 
 type SmoothChunk struct {
@@ -51,6 +57,12 @@ type SmoothStreamIndex struct {
 	ChunksInfos []SmoothChunk `xml:"c"`
 }
 
+type SmoothProtectionHeader struct {
+	XMLName xml.Name `xml:"ProtectionHeader"`
+	SystemId string `xml:"SystemID,attr"`
+	Blob string `xml:",chardata"`
+}
+
 type SmoothStreamingMedia struct {
 	XMLName xml.Name `xml:"SmoothStreamingMedia"`
 	MajorVersion int `xml:"MajorVersion,attr"`
@@ -60,6 +72,7 @@ type SmoothStreamingMedia struct {
 	IsLive bool `xml:"IsLive,attr"`
 	LookaheadCount int `xml:"LookaheadCount,attr"`
 	StreamIndexes []SmoothStreamIndex `xml:"StreamIndex"`
+	Protection []SmoothProtectionHeader `xml:"Protection>ProtectionHeader"`
 }
 
 type SmoothAtomParser func (d *SmoothDemuxer, reader io.ReadSeeker, size int, t *Track)
@@ -152,6 +165,41 @@ func (d *SmoothDemuxer) parseSmoothTRUN(reader io.ReadSeeker, size int, track *T
 	d.baseDurations[track.index] = decodeTime
 }
 
+func parseSMOOTHSENC(reader io.ReadSeeker, track *Track) {
+	flags, _ := utils.AtomReadInt32(reader)
+	if flags & 0x1 > 0 {
+		reader.Seek(20, 1)
+	}
+	count, _ := utils.AtomReadInt32(reader)
+	for i := 0; i < count; i++ {
+		track.samples[i].encrypt = new(SampleEncryption)
+		/* ASSUME size = 8 */
+		track.samples[i].encrypt.initializationVector, _ = utils.AtomReadBuffer(reader, 8)
+		if flags & 0x2 > 0 {
+			track.encryptInfos.subEncrypt = true
+			nb, _ := utils.AtomReadInt16(reader)
+			for j := 0; j < nb; j++ {
+				clear, _ := utils.AtomReadInt16(reader)
+				encrypted, _ := utils.AtomReadInt32(reader)
+				track.samples[i].encrypt.subEncrypt = append(track.samples[i].encrypt.subEncrypt, SubSampleEncryption{clear, encrypted})
+			}
+		}
+	}
+}
+
+func (d *SmoothDemuxer) parseSmoothUUID(reader io.ReadSeeker, size int, track *Track) {
+	if track.encryptInfos == nil {
+		return
+	}
+	high, _ := utils.AtomReadInt64(reader)
+	low, _ := utils.AtomReadInt64(reader)
+	if uint(high) == 0xa2394f525a9b4f14 && uint(low) == 0xa2446c427c648df4 {
+		parseSMOOTHSENC(reader, track)
+	} else {
+		reader.Seek(int64(size - 8), 1)
+	}
+}
+
 func (d *SmoothDemuxer) buildAudioExtradata(privateData string, freq int, chans int) []byte {
 	if privateData != "" {
 		res, _ := hex.DecodeString(privateData)
@@ -202,6 +250,60 @@ func (d *SmoothDemuxer) getChunksURL(bitrate int, url string, chunks []SmoothChu
 	return &res
 }
 
+func buildWidevinePSS(key []byte) pss {
+	blob := []byte{
+		0x8, 0x1, 0x12, 0x10,
+	}
+	blob = append(blob, key...)
+	return pss{"EDEF8BA979D64ACEA3C827DCD51D21ED", blob}
+}
+
+func extractKeyId(data []byte) []byte {
+	shorts := make([]uint16, len(data)/2 - 5)
+	for i := 0; i < len(data) - 10; i += 2 {
+		shorts[(i)/2] = (uint16(data[i + 11]) << 8) | uint16(data[i + 10])
+	}
+	bytes, err := base64.StdEncoding.DecodeString(PlayReadyRegexp.FindStringSubmatch(string(utf16.Decode(shorts)))[1])
+	if err != nil {
+		return nil
+	}
+	key := hex.EncodeToString(bytes)
+	res, err := hex.DecodeString(string([]uint8{
+		key[6], key[7], key[4], key[5], key[2], key[3], key[0], key[1],
+		key[10], key[11], key[8], key[9],
+		key[14], key[15], key[12], key[13],
+		key[16], key[17], key[18], key[19],
+		key[20], key[21], key[22], key[23], key[24], key[25],
+		key[26], key[27], key[28], key[29], key[30], key[31],
+	}))
+	if err != nil {
+		return nil
+	}
+	return res
+}
+
+func (d *SmoothDemuxer) buildEncryptionInfos(headers []SmoothProtectionHeader) *EncryptionInfo {
+	var res EncryptionInfo
+	var i int
+	for i = 0; i < len(headers); i++ {
+		if headers[i].SystemId == "9A04F079-9840-4286-AB92-E65BE0885F95" {
+			break
+		}
+	}
+	blob, err := base64.StdEncoding.DecodeString(headers[i].Blob)
+	if err != nil {
+		return nil
+	}
+	keyId := extractKeyId(blob)
+	res.keyId = hex.EncodeToString(keyId)
+	if err != nil {
+		return nil
+	}
+	res.pssList = append(res.pssList, buildWidevinePSS(keyId))
+	res.pssList = append(res.pssList, pss{"9A04F07998404286AB92E65BE0885F95", blob})
+	return &res
+}
+
 func (d *SmoothDemuxer) parseSmoothManifest(manifest *SmoothStreamingMedia, tracks *[]*Track) error {
 	var track *Track
 	if manifest.Timescale == 0 {
@@ -229,6 +331,9 @@ func (d *SmoothDemuxer) parseSmoothManifest(manifest *SmoothStreamingMedia, trac
 				track.colorTableId = 24
 				track.extradata = d.buildVideoExtradata(manifest.StreamIndexes[i].QualityInfos[j].CodecPrivateData)
 			}
+			if len(manifest.Protection) > 0 {
+				track.encryptInfos = d.buildEncryptionInfos(manifest.Protection)
+			}
 			acc += 1
 			*tracks = append(*tracks, track)
 			d.chunksURL[track.index] = d.getChunksURL(manifest.StreamIndexes[i].QualityInfos[j].Bitrate, manifest.StreamIndexes[i].Url, manifest.StreamIndexes[i].ChunksInfos)
@@ -245,6 +350,7 @@ func (d *SmoothDemuxer) Open(path string) error {
 	d.atomParsers["mdat"] = (*SmoothDemuxer).parseSmoothMDAT
 	d.atomParsers["tfhd"] = (*SmoothDemuxer).parseSmoothTFHD
 	d.atomParsers["trun"] = (*SmoothDemuxer).parseSmoothTRUN
+	d.atomParsers["uuid"] = (*SmoothDemuxer).parseSmoothUUID
 	return nil
 }
 
