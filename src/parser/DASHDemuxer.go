@@ -2,7 +2,6 @@ package parser
 
 import (
 	"io"
-	//"fmt"
 	"sync"
 	"utils"
 	"bytes"
@@ -13,6 +12,7 @@ import (
 	"net/http"
 	"io/ioutil"
 	"encoding/xml"
+	"encoding/hex"
 	"path/filepath"
 )
 
@@ -91,18 +91,26 @@ func (d *DASHDemuxer) Open(path string) error {
 	d.atomParsers["mdhd"] = (*DASHDemuxer).parseDASHMDHD
 	d.atomParsers["mvhd"] = (*DASHDemuxer).parseDASHMVHD
 	d.atomParsers["stsd"] = (*DASHDemuxer).parseDASHSTSD
+	d.atomParsers["mp4a"] = (*DASHDemuxer).parseDASHMP4A
+	d.atomParsers["avc1"] = (*DASHDemuxer).parseDASHAVC1
 	d.atomParsers["hdlr"] = (*DASHDemuxer).parseDASHHDLR
 	d.atomParsers["tfhd"] = (*DASHDemuxer).parseDASHTFHD
 	d.atomParsers["elst"] = (*DASHDemuxer).parseDASHELST
 	d.atomParsers["trun"] = (*DASHDemuxer).parseDASHTRUN
 	d.atomParsers["tfdt"] = (*DASHDemuxer).parseDASHTFDT
+	d.atomParsers["pssh"] = (*DASHDemuxer).parseDASHPSSH
+	d.atomParsers["encv"] = (*DASHDemuxer).parseDASHENCV
+	d.atomParsers["enca"] = (*DASHDemuxer).parseDASHENCA
+	d.atomParsers["tenc"] = (*DASHDemuxer).parseDASHTENC
+	d.atomParsers["senc"] = (*DASHDemuxer).parseDASHSENC
 	return nil
 }
 
 func containerDASHAtom(tag string) bool {
 	return tag == "moov" || tag == "mvex" || tag == "trak" ||
 		tag == "traf" || tag == "mdia" || tag == "minf" ||
-		tag == "stbl" || tag == "moof" || tag == "edts"
+		tag == "stbl" || tag == "moof" || tag == "edts" ||
+		tag == "schi" || tag == "sinf" || tag == "schi"
 }
 
 func (d *DASHDemuxer) parseDASHMDAT(reader io.ReadSeeker, size int, track *Track) {
@@ -160,7 +168,9 @@ func (d *DASHDemuxer) parseDASHMP4Descr(reader io.ReadSeeker, tag *int) int {
 
 func (d *DASHDemuxer) parseDASHESDS(reader io.ReadSeeker, track *Track) {
 	var tag int
-	reader.Seek(12, 1)
+	base, _ := utils.CurrentOffset(reader)
+	size, _ := utils.AtomReadInt32(reader)
+	reader.Seek(8, 1)
 	len := d.parseDASHMP4Descr(reader, &tag)
 	if tag == 0x03 {
 		reader.Seek(3, 1)
@@ -175,6 +185,17 @@ func (d *DASHDemuxer) parseDASHESDS(reader io.ReadSeeker, track *Track) {
 			track.extradata, _ = utils.AtomReadBuffer(reader, len)
 		}
 	}
+	cur, _ := utils.CurrentOffset(reader)
+	if cur - base < size {
+		reader.Seek(int64(size - (cur - base)), 1)
+	}
+}
+
+func (d *DASHDemuxer) parseDASHMP4A(reader io.ReadSeeker, size int, track *Track) {
+	reader.Seek(24, 1)
+	track.sampleRate, _ = utils.AtomReadInt32(reader)
+	track.sampleRate = (track.sampleRate >> 16)
+	d.parseDASHESDS(reader, track)
 }
 
 func (d *DASHDemuxer) parseDASHAVCC(reader io.ReadSeeker, track *Track) {
@@ -183,25 +204,27 @@ func (d *DASHDemuxer) parseDASHAVCC(reader io.ReadSeeker, track *Track) {
 	track.extradata, _ = utils.AtomReadBuffer(reader, size - 8)
 }
 
+func (d *DASHDemuxer) parseDASHAVC1(reader io.ReadSeeker, size int, track *Track) {
+	reader.Seek(24, 1)
+	track.width, _ = utils.AtomReadInt16(reader)
+	track.height, _ = utils.AtomReadInt16(reader)
+	reader.Seek(46, 1)
+	track.bitsPerSample, _ = utils.AtomReadInt16(reader)
+	track.colorTableId, _ = utils.AtomReadInt16(reader)
+	d.parseDASHAVCC(reader, track)
+}
+
 func (d *DASHDemuxer) parseDASHSTSD(reader io.ReadSeeker, size int, track *Track) {
 	initPos, _ := utils.CurrentOffset(reader);
 	reader.Seek(4, 1)
 	entries, _ := utils.AtomReadInt32(reader)
 	for i := 0; i < entries; i++ {
-		reader.Seek(16, 1)
-		if track.isAudio {
-			reader.Seek(16, 1)
-			track.sampleRate, _ = utils.AtomReadInt32(reader)
-			track.sampleRate = (track.sampleRate >> 16)
-			d.parseDASHESDS(reader, track)
-		} else {
-			reader.Seek(16, 1)
-			track.width, _ = utils.AtomReadInt16(reader)
-			track.height, _ = utils.AtomReadInt16(reader)
-			reader.Seek(46, 1)
-			track.bitsPerSample, _ = utils.AtomReadInt16(reader)
-			track.colorTableId, _ = utils.AtomReadInt16(reader)
-			d.parseDASHAVCC(reader, track)
+		subSize := 0
+		tag, _ := utils.ReadAtomHeader(reader, &subSize)
+		if d.atomParsers[tag] != nil {
+			d.atomParsers[tag](d, reader, subSize, track)
+		} else if !containerDASHAtom(tag) {
+			reader.Seek(int64(subSize - 8), 1)
 		}
 	}
 	cur, _ := utils.CurrentOffset(reader)
@@ -265,6 +288,82 @@ func (d *DASHDemuxer) parseDASHELST(reader io.ReadSeeker, size int, track *Track
 
 		}
 		reader.Seek(4, 1)
+	}
+}
+
+func (d *DASHDemuxer) parseDASHPSSH(reader io.ReadSeeker, size int, track *Track) {
+	var infos pss
+	if track.encryptInfos == nil {
+		track.encryptInfos = new(EncryptionInfo)
+	}
+	reader.Seek(4, 1)
+	buf, _ := utils.AtomReadBuffer(reader, 16)
+	infos.systemId = hex.EncodeToString(buf)
+	length, _ := utils.AtomReadInt32(reader)
+	infos.privateData, _ = utils.AtomReadBuffer(reader, length)
+	track.encryptInfos.pssList = append(track.encryptInfos.pssList, infos)
+}
+
+func (d *DASHDemuxer) parseDASHENCV(reader io.ReadSeeker, size int, track *Track) {
+	base, _ := utils.CurrentOffset(reader)
+	d.parseDASHAVC1(reader, size, track)
+	cur, _ := utils.CurrentOffset(reader)
+	for cur - base < (size - 8) {
+		subSize := 0
+		tag, _ := utils.ReadAtomHeader(reader, &subSize)
+		if d.atomParsers[tag] != nil {
+			d.atomParsers[tag](d, reader, subSize, track)
+		} else if !containerDASHAtom(tag) {
+			reader.Seek(int64(subSize - 8), 1)
+		}
+		cur, _ = utils.CurrentOffset(reader)
+	}
+}
+
+func (d *DASHDemuxer) parseDASHENCA(reader io.ReadSeeker, size int, track *Track) {
+	base, _ := utils.CurrentOffset(reader)
+	d.parseDASHMP4A(reader, size, track)
+	cur, _ := utils.CurrentOffset(reader)
+	for cur - base < (size - 8) {
+		subSize := 0
+		tag, _ := utils.ReadAtomHeader(reader, &subSize)
+		if d.atomParsers[tag] != nil {
+			d.atomParsers[tag](d, reader, subSize, track)
+		} else if !containerDASHAtom(tag) {
+			reader.Seek(int64(subSize - 8), 1)
+		}
+		cur, _ = utils.CurrentOffset(reader)
+	}
+}
+
+func (d *DASHDemuxer) parseDASHTENC(reader io.ReadSeeker, size int, track *Track) {
+	if track.encryptInfos == nil {
+		track.encryptInfos = new(EncryptionInfo)
+	}
+	reader.Seek(8, 1)
+	buf, _ := utils.AtomReadBuffer(reader, 16)
+	track.encryptInfos.keyId = hex.EncodeToString(buf)
+}
+
+func (d *DASHDemuxer) parseDASHSENC(reader io.ReadSeeker, size int, track *Track) {
+	flags, _ := utils.AtomReadInt32(reader)
+	if flags & 0x1 > 0 {
+		reader.Seek(20, 1)
+	}
+	count, _ := utils.AtomReadInt32(reader)
+	for i := 0; i < count; i++ {
+		track.samples[i].encrypt = new(SampleEncryption)
+		/* ASSUME size = 8 */
+		track.samples[i].encrypt.initializationVector, _ = utils.AtomReadBuffer(reader, 8)
+		if flags & 0x2 > 0 {
+			track.encryptInfos.subEncrypt = true
+			nb, _ := utils.AtomReadInt16(reader)
+			for j := 0; j < nb; j++ {
+				clear, _ := utils.AtomReadInt16(reader)
+				encrypted, _ := utils.AtomReadInt32(reader)
+				track.samples[i].encrypt.subEncrypt = append(track.samples[i].encrypt.subEncrypt, SubSampleEncryption{clear, encrypted})
+			}
+		}
 	}
 }
 

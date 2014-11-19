@@ -61,7 +61,6 @@ type Sample struct {
 	keyFrame bool
 	data	 unsafe.Pointer
 	size     C.int
-	pkt      *C.AVPacket
 	encrypt  *SampleEncryption
 }
 

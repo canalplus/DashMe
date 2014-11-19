@@ -35,7 +35,7 @@ type pss struct {
 type EncryptionInfo struct {
 	pssList    []pss
 	subEncrypt bool
-	keyId       string
+	keyId      string
 }
 
 /* Structure representing a track inside an input file */
@@ -61,6 +61,18 @@ type Track struct {
 	chunksSize       []int
 	encryptInfos     *EncryptionInfo
 	builder          Builder
+}
+
+/* Print track on stdout */
+func (s *Sample) Print() {
+	fmt.Println("Sample :")
+	fmt.Println("\tpts : ", s.pts)
+	fmt.Println("\tdts : ", s.dts)
+	fmt.Println("\tduration : ", s.duration)
+	fmt.Println("\tkeyFrame : ", s.keyFrame)
+	fmt.Println("\tdata : ", s.data)
+	fmt.Println("\tsize : ", s.size)
+	fmt.Println("\tencrypted : ", (s.encrypt != nil))
 }
 
 /* Print track on stdout */
@@ -163,7 +175,10 @@ func (t *Track) computeMOOFSize() int {
 	if t.encryptInfos != nil {
 		sencSize := 0
 		for i := 0; i < len(t.samples); i++ {
-			sencSize += 2 + len(t.samples[i].encrypt.initializationVector) + 6 * len(t.samples[i].encrypt.subEncrypt)
+			sencSize += len(t.samples[i].encrypt.initializationVector)
+			if t.encryptInfos.subEncrypt {
+				sencSize += 2 + 6 * len(t.samples[i].encrypt.subEncrypt)
+			}
 		}
 		res += 16 + sencSize + /* SENC size */
 			17 + len(t.samples) + /* SAIZ size */

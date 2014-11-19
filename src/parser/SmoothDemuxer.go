@@ -335,6 +335,7 @@ func (d *SmoothDemuxer) parseSmoothManifest(manifest *SmoothStreamingMedia, trac
 				track.encryptInfos = d.buildEncryptionInfos(manifest.Protection)
 			}
 			acc += 1
+			track.SetTimeFields()
 			*tracks = append(*tracks, track)
 			d.chunksURL[track.index] = d.getChunksURL(manifest.StreamIndexes[i].QualityInfos[j].Bitrate, manifest.StreamIndexes[i].Url, manifest.StreamIndexes[i].ChunksInfos)
 			d.baseDurations[track.index] = 0

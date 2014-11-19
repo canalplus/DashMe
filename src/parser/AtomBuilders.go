@@ -145,21 +145,23 @@ func buildSENC(t Track) ([]byte, error) {
 	for i := 0; i < len(t.samples); i++ {
 		length = len(t.samples[i].encrypt.subEncrypt)
 		b = append(b, t.samples[i].encrypt.initializationVector...)
-		b = append(b, []byte{
-			byte((length >> 8) & 0xFF),
-			byte((length) & 0xFF),
-		}...)
-		for j := 0; t.encryptInfos.subEncrypt && j < length; j++ {
-			clear := t.samples[i].encrypt.subEncrypt[j].clear
-			encrypted := t.samples[i].encrypt.subEncrypt[j].encrypted
+		if t.encryptInfos.subEncrypt {
 			b = append(b, []byte{
-				byte((clear >> 8) & 0xFF),
-				byte((clear) & 0xFF),
-				byte((encrypted >> 24) & 0xFF),
-				byte((encrypted >> 16) & 0xFF),
-				byte((encrypted >> 8) & 0xFF),
-				byte((encrypted) & 0xFF),
+				byte((length >> 8) & 0xFF),
+				byte((length) & 0xFF),
 			}...)
+			for j := 0; j < length; j++ {
+				clear := t.samples[i].encrypt.subEncrypt[j].clear
+				encrypted := t.samples[i].encrypt.subEncrypt[j].encrypted
+				b = append(b, []byte{
+					byte((clear >> 8) & 0xFF),
+					byte((clear) & 0xFF),
+					byte((encrypted >> 24) & 0xFF),
+					byte((encrypted >> 16) & 0xFF),
+					byte((encrypted >> 8) & 0xFF),
+					byte((encrypted) & 0xFF),
+				}...)
+			}
 		}
 	}
 	return utils.BuildAtom("senc", b)
@@ -175,8 +177,10 @@ func buildSAIZ(t Track) ([]byte, error) {
 		byte((length) & 0xFF),
 	}
 	for i := 0; i < len(t.samples); i++ {
-		size := len(t.samples[i].encrypt.initializationVector) + 2
-		size += len(t.samples[i].encrypt.subEncrypt) * 6
+		size := len(t.samples[i].encrypt.initializationVector)
+		if t.encryptInfos.subEncrypt {
+			size += 2 + len(t.samples[i].encrypt.subEncrypt) * 6
+		}
 		b = append(b, byte(size))
 	}
 	return utils.BuildAtom("saiz", b)
