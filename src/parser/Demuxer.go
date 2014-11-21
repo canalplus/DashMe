@@ -9,7 +9,7 @@ type Demuxer interface {
 	Open(path string) error
 	GetTracks(tracks *[]*Track) error
 	Close()
-	ExtractChunk(tracks *[]*Track) bool
+	ExtractChunk(tracks *[]*Track, isLive bool) bool
 }
 
 type DemuxerConstructor func() Demuxer

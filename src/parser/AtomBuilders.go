@@ -191,7 +191,7 @@ func buildSAIO(t Track) ([]byte, error) {
 		16 + /* MFHD */
 		8 + /* TRAF header */
 		16 + /* TFHD */
-		16 + /* TFDT */
+		20 + /* TFDT */
 	 	20 + 16 * len(t.samples) + /* TRUN size */
 		16 /* SENC Header */
 	return utils.BuildAtom("saio", []byte{
@@ -598,8 +598,12 @@ func buildMFHD(t Track) ([]byte, error) {
 func buildTFDT(t Track) ([]byte, error) {
 	return utils.BuildAtom("tfdt", []byte{
 		/* Flags + version */
-		0x0, 0x0, 0x0, 0x0,
+		0x1, 0x0, 0x0, 0x0,
 		/* Base media decode time */
+		byte((t.samples[0].pts >> 56) & 0xFF),
+		byte((t.samples[0].pts >> 48) & 0xFF),
+		byte((t.samples[0].pts >> 40) & 0xFF),
+		byte((t.samples[0].pts >> 32) & 0xFF),
 		byte((t.samples[0].pts >> 24) & 0xFF),
 		byte((t.samples[0].pts >> 16) & 0xFF),
 		byte((t.samples[0].pts >> 8) & 0xFF),
@@ -617,7 +621,7 @@ func buildSIDX(t Track) ([]byte, error) {
 	duration := t.computeChunkDuration()
 	res, err := utils.BuildAtom("sidx", []byte{
 		/* Flags + version */
-		0x0, 0x0, 0x0, 0x0,
+		0x1, 0x0, 0x0, 0x0,
 		/* Reference id */
 		0x0, 0x0, 0x0, 0x1,
 		/* Timescale */
@@ -626,12 +630,16 @@ func buildSIDX(t Track) ([]byte, error) {
 		byte((t.timescale >> 8) & 0xFF),
 		byte((t.timescale) & 0xFF),
 		/* Earliest presentation time */
+		byte((t.samples[0].pts >> 56) & 0xFF),
+		byte((t.samples[0].pts >> 48) & 0xFF),
+		byte((t.samples[0].pts >> 40) & 0xFF),
+		byte((t.samples[0].pts >> 32) & 0xFF),
 		byte((t.samples[0].pts >> 24) & 0xFF),
 		byte((t.samples[0].pts >> 16) & 0xFF),
 		byte((t.samples[0].pts >> 8) & 0xFF),
 		byte((t.samples[0].pts) & 0xFF),
 		/* First Offset */
-		0x0, 0x0, 0x0, 0x0,
+		0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
 		/* Reserved */
 		0x0, 0x0,
 		/* Reference count = 1 */
@@ -684,7 +692,7 @@ func buildMDAT(t Track) ([]byte, error) {
 func buildTRUN(t Track) ([]byte, error) {
 	var b []byte
 	var size int
-	var composition int
+	var composition int64
 	var flags int
 	for i :=0; i < len(t.samples); i++ {
 		size = int(t.samples[i].size)

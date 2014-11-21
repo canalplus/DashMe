@@ -101,10 +101,10 @@ func AtomReadInt32(reader io.Reader) (int, error) {
 }
 
 /* Return an int read from 8 bytes */
-func AtomReadInt64(reader io.Reader) (int, error) {
+func AtomReadInt64(reader io.Reader) (int64, error) {
 	var val uint64
 	err := binary.Read(reader, binary.BigEndian, &val)
-	return int(val), err
+	return int64(val), err
 }
 
 /* Return a string read from a 4 byte int */

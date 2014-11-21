@@ -77,9 +77,9 @@ type DASHDemuxer struct {
 	baseURL string
 	atomParsers map[string]DASHAtomParser
 	chunksURL map[int]*utils.Queue
-	defaultSampleDuration int
-	mediaTime int
-	baseMediaDecodeTime int
+	defaultSampleDuration int64
+	mediaTime int64
+	baseMediaDecodeTime int64
 	mutex sync.Mutex
 }
 
@@ -252,7 +252,8 @@ func (d *DASHDemuxer) parseDASHTFHD(reader io.ReadSeeker, size int, track *Track
 		reader.Seek(4, 1)
 	}
 	if (flags & 0x000008) > 0 {
-		d.defaultSampleDuration, _ = utils.AtomReadInt32(reader)
+		tmp, _ := utils.AtomReadInt32(reader)
+		d.defaultSampleDuration = int64(tmp)
 	} else {
 		d.defaultSampleDuration = 0
 	}
@@ -280,7 +281,8 @@ func (d *DASHDemuxer) parseDASHELST(reader io.ReadSeeker, size int, track *Track
 		} else {
 			tmp, _ := utils.AtomReadInt32(reader)
 			if tmp == 0 {
-				d.mediaTime, _ = utils.AtomReadInt32(reader)
+				tmp, _ := utils.AtomReadInt32(reader)
+				d.mediaTime = int64(tmp)
 			} else {
 				d.mediaTime = 0
 				reader.Seek(4, 1)
@@ -376,7 +378,7 @@ func (d *DASHDemuxer) parseDASHTRUN(reader io.ReadSeeker, size int, track *Track
 	flags, _ := utils.AtomReadInt32(reader)
 	count, _ := utils.AtomReadInt32(reader)
 	duration := d.defaultSampleDuration
-	composition := 0
+	composition := int64(0)
 	decodeTime := d.baseMediaDecodeTime
 
 	if (flags & 0x1) > 0 {
@@ -391,7 +393,8 @@ func (d *DASHDemuxer) parseDASHTRUN(reader io.ReadSeeker, size int, track *Track
 		runtime.SetFinalizer(sample, dashPacketFinalizer)
 		sample.pts = decodeTime
 		if (flags & 0x100) > 0 {
-			duration, _ = utils.AtomReadInt32(reader)
+			tmp, _ := utils.AtomReadInt32(reader)
+			duration = int64(tmp)
 		}
 		if (flags & 0x200) > 0 {
 			size, _ := utils.AtomReadInt32(reader)
@@ -401,7 +404,8 @@ func (d *DASHDemuxer) parseDASHTRUN(reader io.ReadSeeker, size int, track *Track
 			reader.Seek(4, 1)
 		}
 		if (flags & 0x800) > 0 {
-			composition, _ = utils.AtomReadInt32(reader)
+			tmp, _ := utils.AtomReadInt32(reader)
+			composition = int64(tmp)
 		}
 		decodeTime += duration
 		sample.dts = sample.pts + composition - d.mediaTime
@@ -418,7 +422,8 @@ func (d *DASHDemuxer) parseDASHTFDT(reader io.ReadSeeker, size int, track *Track
 	if (version == 1) {
 		d.baseMediaDecodeTime, _ = utils.AtomReadInt64(reader)
 	} else {
-		d.baseMediaDecodeTime, _ = utils.AtomReadInt32(reader)
+		tmp, _ := utils.AtomReadInt32(reader)
+		d.baseMediaDecodeTime = int64(tmp)
 	}
 
 }
@@ -567,7 +572,7 @@ func (d *DASHDemuxer) Close() {
 	}
 }
 
-func (d *DASHDemuxer) ExtractChunk(tracks *[]*Track) bool {
+func (d *DASHDemuxer) ExtractChunk(tracks *[]*Track, isLive bool) bool {
 	var track *Track
 	var waitList []chan error
 	res := false

@@ -14,9 +14,10 @@ import (
 */
 
 type available struct {
-	Proto string
-	Path  string
-	Name  string
+	Proto  string
+	Path   string
+	Name   string
+	IsLive bool
 }
 
 func (a available) checkProto() bool {
@@ -134,7 +135,7 @@ func (c *CacheManager) buildIfNeeded(filename string) error {
 	/* Get path to file */
 	inPath := c.getPathFromFilename(filename)
 	if inPath == "" { return errors.New("Can't find file for building !") }
-	err = c.converter.Build(inPath, filename)
+	err = c.converter.Build(inPath, filename, c.availables[i].IsLive)
 	delete(c.converting, filename)
 	if err != nil { return err }
 	c.cached = append(c.cached, filename)
@@ -172,6 +173,7 @@ func (c *CacheManager) AddFile(path string) error {
 		Proto : "file",
 		Name : utils.RemoveExtension(filepath.Base(path)),
 		Path : path,
+		IsLive : false,
 	})
 	return nil
 }

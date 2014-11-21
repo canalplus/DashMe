@@ -55,9 +55,9 @@ type FFMPEGDemuxer struct {
 
 /* Structure used to store a Sample for chunk generation */
 type Sample struct {
-	pts      int
-	dts      int
-	duration int
+	pts      int64
+	dts      int64
+	duration int64
 	keyFrame bool
 	data	 unsafe.Pointer
 	size     C.int
@@ -140,9 +140,9 @@ func packetFinalizer(s *Sample) {
 func (d *FFMPEGDemuxer) AppendSample(track *Track, stream *C.AVStream) {
 	sample := new(Sample)
 	/* Copy packet metadata in sample */
-	sample.pts = int(C.rescale_to_generic_timebase(d.pkt.pts, stream.time_base))
-	sample.dts = int(C.rescale_to_generic_timebase(d.pkt.dts, stream.time_base))
-	sample.duration = int(C.rescale_to_generic_timebase(C.int64_t(d.pkt.duration), stream.time_base))
+	sample.pts = int64(C.rescale_to_generic_timebase(d.pkt.pts, stream.time_base))
+	sample.dts = int64(C.rescale_to_generic_timebase(d.pkt.dts, stream.time_base))
+	sample.duration = int64(C.rescale_to_generic_timebase(C.int64_t(d.pkt.duration), stream.time_base))
 	sample.keyFrame = (d.pkt.flags) & 0x1 > 0
 	/* Copy packet data in sample */
 	sample.size = d.pkt.size
@@ -158,7 +158,7 @@ func (d *FFMPEGDemuxer) AppendSample(track *Track, stream *C.AVStream) {
 Extract one chunk for each track from input, size of the chunk depends on the first
  video track found.
  */
-func (d *FFMPEGDemuxer) ExtractChunk(tracks *[]*Track) bool {
+func (d *FFMPEGDemuxer) ExtractChunk(tracks *[]*Track, isLive bool) bool {
 	var track *Track
 	var stream *C.AVStream
 	/* Find first video track to use as reference for chunk size */
