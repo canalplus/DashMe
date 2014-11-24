@@ -18,21 +18,25 @@ type Builder struct {
 	builders map[string]AtomBuilder
 }
 
+/* Structure used to store encryption parts of a sample */
 type SubSampleEncryption struct {
 	clear     int
 	encrypted int
 }
 
+/* Structure used to store encryption parameters of a sample */
 type SampleEncryption struct {
 	initializationVector []byte
 	subEncrypt []SubSampleEncryption
 }
 
+/* Structure used to specified DRM systems supported byt the track */
 type pss struct {
 	systemId    string
 	privateData []byte
 }
 
+/* Strcture used to store encryption specific info of the track */
 type EncryptionInfo struct {
 	pssList    []pss
 	subEncrypt bool
@@ -138,7 +142,7 @@ func (b *Builder) Initialise() {
 	b.builders["trun"] = buildTRUN /**/
 	b.builders["mdat"] = buildMDAT /**/
 	b.builders["mp4a"] = buildMP4AENCA /**/
-	b.builders["esds"] = buildESDS /**/
+b.builders["esds"] = buildESDS /**/
 	b.builders["avcC"] = buildAVCC /**/
 	b.builders["avc1"] = buildAVC1ENCV /**/
 	b.builders["sinf"] = buildSINF /**/
@@ -307,7 +311,7 @@ func (t *Track) BuildChunk(path string) (float64, error) {
 	return float64(duration) / float64(t.globalTimescale), err
 }
 
-/* Build video track specific part of the manifest */
+/* Build video track adaptation part of the manifest */
 func (t *Track) buildVideoManifestAdaptation() string {
 	chunksDuration := int64(0)
 	for i:= 0; i < len(t.chunksDuration); i++ {
@@ -320,6 +324,7 @@ func (t *Track) buildVideoManifestAdaptation() string {
         media="chunk_$RepresentationID$_$Time$.mp4"
         startNumber="1">
         <SegmentTimeline>`
+	/* Build each chunk entry */
 	for i, duration := range t.chunksDuration {
 		if i == 0 {
 			res += `
@@ -335,6 +340,7 @@ func (t *Track) buildVideoManifestAdaptation() string {
 	return res
 }
 
+/* Build video representation part of the manifest */
 func (t *Track) buildVideoManifestRepresentation() string {
 	res := `
       <Representation
@@ -346,7 +352,7 @@ func (t *Track) buildVideoManifestRepresentation() string {
 	return res
 }
 
-
+/* Build audio adpation part of the manifest */
 func (t *Track) buildAudioManifestAdaptation() string {
 	chunksDuration := int64(0)
 	for i:= 0; i < len(t.chunksDuration); i++ {
@@ -359,6 +365,7 @@ func (t *Track) buildAudioManifestAdaptation() string {
         media="chunk_$RepresentationID$_$Time$.mp4"
         startNumber="1">
         <SegmentTimeline>`
+	/* Build each chunk entry */
 	for i, duration := range t.chunksDuration {
 		if i == 0 {
 			res += `
@@ -374,7 +381,7 @@ func (t *Track) buildAudioManifestAdaptation() string {
 	return res
 }
 
-/* Build audio track specific part of the manifest */
+/* Build audio representation part of the manifest */
 func (t *Track) buildAudioManifestRepresentation() string {
 	res := `
       <Representation
@@ -397,14 +404,17 @@ func (t *Track) computeBandwidth() {
 	}
 	totalDuration := int64(0)
 	totalSize := int64(0)
+	/* Accumulate duration and size for all chunks */
 	for _, duration := range t.chunksDuration {
 		totalDuration += duration
 	}
 	for _, size := range t.chunksSize {
 		totalSize += int64(size)
 	}
+	/* Rescale duration to seconds */
 	totalDuration /= int64(t.globalTimescale)
 	if totalDuration > 0 {
+		/* Return bandwidth */
 		t.bandwidth =  int(totalSize / totalDuration)
 	} else {
 		t.bandwidth = 0
@@ -436,7 +446,7 @@ func (t *Track) ComputePrivateInfos() {
 	t.extractCodec()
 }
 
-/* Build track specific part of the manifest */
+/* Build track adaptation part of the manifest */
 func (t *Track) BuildAdaptationSet() string {
 	if t.isAudio {
 		return t.buildAudioManifestAdaptation()
@@ -445,6 +455,7 @@ func (t *Track) BuildAdaptationSet() string {
 	}
 }
 
+/* Build track representation part of the manifest */
 func (t *Track) BuildRepresentation() string {
 	if t.isAudio {
 		return t.buildAudioManifestRepresentation()
@@ -495,6 +506,7 @@ func (t *Track) Clean() {
 	t.samples = nil
 }
 
+/* Partially clean internal list in order to generate an up to date manifest */
 func (t *Track) CleanForLive() {
 	if len(t.chunksDuration) - (t.chunksDepth + 1) > 0 {
 		t.chunksDuration = t.chunksDuration[:len(t.chunksDuration) - (t.chunksDepth + 1)]
@@ -507,22 +519,27 @@ func (t *Track) CleanForLive() {
 	}
 }
 
+/* Return if the track is audio or not */
 func (t *Track) IsAudio() bool {
 	return t.isAudio
 }
 
+/* Return track bandwidth */
 func (t *Track) Bandwidth() int {
 	return t.bandwidth
 }
 
+/* Return track width (0 for audio) */
 func (t *Track) Width() int {
 	return t.width
 }
 
+/* Return track height (0 for audio) */
 func (t *Track) Height() int {
 	return t.height
 }
 
+/* Compute track buffer depth */
 func (t *Track) BufferDepth() float64 {
 	duration := int64(0)
 	for i := 0; i < len(t.chunksDuration); i++ {
@@ -533,6 +550,7 @@ func (t *Track) BufferDepth() float64 {
 	return float64(duration) / float64(len(t.chunksDuration))
 }
 
+/* Clean track directory for unreferenced file in manifest */
 func (t *Track) CleanDirectory(path string) {
 	var name string
 	if t.isAudio {
@@ -550,7 +568,6 @@ func (t *Track) CleanDirectory(path string) {
 				}
 			}
 			if i == len(t.chunksName) {
-				fmt.Printf("Removing (t=%d) %q\n", t.index, fi.Name())
 				os.Remove(filepath.Join(path, fi.Name()))
 			}
 		}

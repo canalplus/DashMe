@@ -185,28 +185,34 @@ func DisplayMemStats() {
 	fmt.Printf("DebugGC : %t\n", stats.DebugGC)
 }
 
+/* Data structure used to represent a queue */
 type Queue struct {
 	data []interface{}
 }
 
+/* Return queue size */
 func (s *Queue) Size() int {
 	return len(s.data)
 }
 
+/* Return if the queue is empty */
 func (s *Queue) Empty() bool {
 	return len(s.data) == 0
 }
 
+/* Pop the first element from the queue */
 func (s *Queue) Pop() interface{} {
 	res := s.data[0]
 	s.data = s.data[1:]
 	return res
 }
 
+/* Push an element to the end of the queue */
 func (s *Queue) Push(elms ...interface{}) {
 	s.data = append(s.data, elms...)
 }
 
+/* Clear queue */
 func (s *Queue) Clear() {
 	s.data = s.data[:0]
 	s.data = nil

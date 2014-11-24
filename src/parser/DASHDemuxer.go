@@ -540,11 +540,6 @@ func (d *DASHDemuxer) parseDASHManifest(manifest *DASHManifest, tracks *[]*Track
 	return nil
 }
 
-/*
-name = strings.Replace(name, "$Number$", , 1)
-name = strings.Replace(name, "$Time$", , 1)
-*/
-
 func (d *DASHDemuxer) GetTracks(tracks *[]*Track) error {
 	var manifest DASHManifest
 	resp, err := http.Get(d.manifestURL)
