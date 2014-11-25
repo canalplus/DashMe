@@ -72,6 +72,7 @@ type DASHManifest struct {
 
 type DASHAtomParser func (d *DASHDemuxer, reader io.ReadSeeker, size int, t *Track)
 
+/* Demuxer structure foàr DASH streaming parsing */
 type DASHDemuxer struct {
 	manifestURL string
 	baseURL string
@@ -83,6 +84,7 @@ type DASHDemuxer struct {
 	mutex sync.Mutex
 }
 
+/* Initialise DASH demuxer */
 func (d *DASHDemuxer) Open(path string) error {
 	d.manifestURL = "http://" + path
 	d.baseURL = "http://" + filepath.Dir(path)
@@ -113,6 +115,7 @@ func containerDASHAtom(tag string) bool {
 		tag == "schi" || tag == "sinf" || tag == "schi"
 }
 
+/* Extract samples data from DASH MDAT atom */
 func (d *DASHDemuxer) parseDASHMDAT(reader io.ReadSeeker, size int, track *Track) {
 	for i := 0; i < len(track.samples); i++ {
 		buffer, _ := utils.AtomReadBuffer(reader, int(track.samples[i].size))
@@ -120,6 +123,7 @@ func (d *DASHDemuxer) parseDASHMDAT(reader io.ReadSeeker, size int, track *Track
 	}
 }
 
+/* Extract track specific time scale from DASH MDHD atom */
 func (d *DASHDemuxer) parseDASHMDHD(reader io.ReadSeeker, size int, track *Track) {
 	version, _ := utils.AtomReadInt8(reader)
 	reader.Seek(3, 1)
@@ -135,6 +139,7 @@ func (d *DASHDemuxer) parseDASHMDHD(reader io.ReadSeeker, size int, track *Track
 	reader.Seek(4, 1)
 }
 
+/* Extract global stream timescale from DASH MVHD atom */
 func (d *DASHDemuxer) parseDASHMVHD(reader io.ReadSeeker, size int, track *Track) {
 	version, _ := utils.AtomReadInt8(reader)
 	reader.Seek(3, 1)
@@ -151,6 +156,7 @@ func (d *DASHDemuxer) parseDASHMVHD(reader io.ReadSeeker, size int, track *Track
 	}
 }
 
+/* Helper function for ESDS atom parsing */
 func (d *DASHDemuxer) parseDASHMP4Descr(reader io.ReadSeeker, tag *int) int {
 	*tag, _ = utils.AtomReadInt8(reader)
 	len := 0
@@ -166,6 +172,7 @@ func (d *DASHDemuxer) parseDASHMP4Descr(reader io.ReadSeeker, tag *int) int {
 	return len
 }
 
+/* Extract audio extradata from DASH ESDS atom */
 func (d *DASHDemuxer) parseDASHESDS(reader io.ReadSeeker, track *Track) {
 	var tag int
 	base, _ := utils.CurrentOffset(reader)
@@ -191,6 +198,7 @@ func (d *DASHDemuxer) parseDASHESDS(reader io.ReadSeeker, track *Track) {
 	}
 }
 
+/* Extract audio info from DASH MP4A atom */
 func (d *DASHDemuxer) parseDASHMP4A(reader io.ReadSeeker, size int, track *Track) {
 	reader.Seek(24, 1)
 	track.sampleRate, _ = utils.AtomReadInt32(reader)
@@ -198,12 +206,14 @@ func (d *DASHDemuxer) parseDASHMP4A(reader io.ReadSeeker, size int, track *Track
 	d.parseDASHESDS(reader, track)
 }
 
+/* Extract video extradata from DASH AVCD atom */
 func (d *DASHDemuxer) parseDASHAVCC(reader io.ReadSeeker, track *Track) {
 	size, _ := utils.AtomReadInt32(reader)
 	reader.Seek(4, 1)
 	track.extradata, _ = utils.AtomReadBuffer(reader, size - 8)
 }
 
+/* Extract video info from DASH AVC1 atom */
 func (d *DASHDemuxer) parseDASHAVC1(reader io.ReadSeeker, size int, track *Track) {
 	reader.Seek(24, 1)
 	track.width, _ = utils.AtomReadInt16(reader)
@@ -214,10 +224,12 @@ func (d *DASHDemuxer) parseDASHAVC1(reader io.ReadSeeker, size int, track *Track
 	d.parseDASHAVCC(reader, track)
 }
 
+/* Extract track type specific information from DASH STSD atom */
 func (d *DASHDemuxer) parseDASHSTSD(reader io.ReadSeeker, size int, track *Track) {
 	initPos, _ := utils.CurrentOffset(reader);
 	reader.Seek(4, 1)
 	entries, _ := utils.AtomReadInt32(reader)
+	/* Iterate over each antries declared in atom */
 	for i := 0; i < entries; i++ {
 		subSize := 0
 		tag, _ := utils.ReadAtomHeader(reader, &subSize)
@@ -231,6 +243,7 @@ func (d *DASHDemuxer) parseDASHSTSD(reader io.ReadSeeker, size int, track *Track
 	reader.Seek(int64(initPos + size - 8 - cur), 1)
 }
 
+/* Extract track type from DASH HDLR atom */
 func (d *DASHDemuxer) parseDASHHDLR(reader io.ReadSeeker, size int, track *Track) {
 	reader.Seek(8, 1)
 	tag, _ := utils.AtomReadTag(reader);
@@ -242,6 +255,7 @@ func (d *DASHDemuxer) parseDASHHDLR(reader io.ReadSeeker, size int, track *Track
 	reader.Seek(int64(size - 20), 1)
 }
 
+/* Extract default sample duration from TFHD atom if declared */
 func (d *DASHDemuxer) parseDASHTFHD(reader io.ReadSeeker, size int, track *Track) {
 	flags, _ := utils.AtomReadInt32(reader)
 	reader.Seek(4, 1)
@@ -265,6 +279,7 @@ func (d *DASHDemuxer) parseDASHTFHD(reader io.ReadSeeker, size int, track *Track
 	}
 }
 
+/* Extract media time offset from DASH ELST atom if present */
 func (d *DASHDemuxer) parseDASHELST(reader io.ReadSeeker, size int, track *Track) {
 	version, _ := utils.AtomReadInt8(reader)
 	reader.Seek(3, 1)
@@ -293,6 +308,7 @@ func (d *DASHDemuxer) parseDASHELST(reader io.ReadSeeker, size int, track *Track
 	}
 }
 
+/* Extract encryption challenges from DASH PSSH atom */
 func (d *DASHDemuxer) parseDASHPSSH(reader io.ReadSeeker, size int, track *Track) {
 	var infos pss
 	if track.encryptInfos == nil {
@@ -306,10 +322,13 @@ func (d *DASHDemuxer) parseDASHPSSH(reader io.ReadSeeker, size int, track *Track
 	track.encryptInfos.pssList = append(track.encryptInfos.pssList, infos)
 }
 
+/* Extract video info and encryption from DASH ENCV atom */
 func (d *DASHDemuxer) parseDASHENCV(reader io.ReadSeeker, size int, track *Track) {
 	base, _ := utils.CurrentOffset(reader)
+	/* Extract video info */
 	d.parseDASHAVC1(reader, size, track)
 	cur, _ := utils.CurrentOffset(reader)
+	/* Iterate over the other atoms and extract encryption info */
 	for cur - base < (size - 8) {
 		subSize := 0
 		tag, _ := utils.ReadAtomHeader(reader, &subSize)
@@ -322,10 +341,13 @@ func (d *DASHDemuxer) parseDASHENCV(reader io.ReadSeeker, size int, track *Track
 	}
 }
 
+/* Extract audio info and encryption from DASH ENCV atom */
 func (d *DASHDemuxer) parseDASHENCA(reader io.ReadSeeker, size int, track *Track) {
 	base, _ := utils.CurrentOffset(reader)
+	/* Extract audio info */
 	d.parseDASHMP4A(reader, size, track)
 	cur, _ := utils.CurrentOffset(reader)
+	/* Iterate over the other atoms and extract encryption info */
 	for cur - base < (size - 8) {
 		subSize := 0
 		tag, _ := utils.ReadAtomHeader(reader, &subSize)
@@ -338,6 +360,7 @@ func (d *DASHDemuxer) parseDASHENCA(reader io.ReadSeeker, size int, track *Track
 	}
 }
 
+/* Extract ecnryption keyId from DASH TENC atom */
 func (d *DASHDemuxer) parseDASHTENC(reader io.ReadSeeker, size int, track *Track) {
 	if track.encryptInfos == nil {
 		track.encryptInfos = new(EncryptionInfo)
@@ -347,15 +370,17 @@ func (d *DASHDemuxer) parseDASHTENC(reader io.ReadSeeker, size int, track *Track
 	track.encryptInfos.keyId = hex.EncodeToString(buf)
 }
 
+/* Extract sample encryption info from DASH SENC atom */
 func (d *DASHDemuxer) parseDASHSENC(reader io.ReadSeeker, size int, track *Track) {
 	flags, _ := utils.AtomReadInt32(reader)
 	if flags & 0x1 > 0 {
 		reader.Seek(20, 1)
 	}
 	count, _ := utils.AtomReadInt32(reader)
+	/* Iterate over each declared sample */
 	for i := 0; i < count; i++ {
+		/* Add encryption infos for sample. TODO : handle size != 8 */
 		track.samples[i].encrypt = new(SampleEncryption)
-		/* ASSUME size = 8 */
 		track.samples[i].encrypt.initializationVector, _ = utils.AtomReadBuffer(reader, 8)
 		if flags & 0x2 > 0 {
 			track.encryptInfos.subEncrypt = true
@@ -374,28 +399,32 @@ func dashPacketFinalizer(s *Sample) {
 	CFree(s.data)
 }
 
+/* Extract sample information about the chunk from DASH TRUN atom */
 func (d *DASHDemuxer) parseDASHTRUN(reader io.ReadSeeker, size int, track *Track) {
 	flags, _ := utils.AtomReadInt32(reader)
 	count, _ := utils.AtomReadInt32(reader)
 	duration := d.defaultSampleDuration
 	composition := int64(0)
 	decodeTime := d.baseMediaDecodeTime
-
+	/* Skip unused values if present */
 	if (flags & 0x1) > 0 {
 		reader.Seek(4, 1)
 	}
 	if (flags & 0x4) > 0 {
 		reader.Seek(4, 1)
 	}
-
+	/* Iterate over each declared sample */
 	for i := 0; i < count; i++ {
+		/* Construct sample and set finalizer for memory liberation */
 		sample := new(Sample)
 		runtime.SetFinalizer(sample, dashPacketFinalizer)
 		sample.pts = decodeTime
+		/* Read duration from atom if present, use default duration otherwise */
 		if (flags & 0x100) > 0 {
 			tmp, _ := utils.AtomReadInt32(reader)
 			duration = int64(tmp)
 		}
+		/* Read sample size */
 		if (flags & 0x200) > 0 {
 			size, _ := utils.AtomReadInt32(reader)
 			sample.size = CInt(size)
@@ -403,18 +432,23 @@ func (d *DASHDemuxer) parseDASHTRUN(reader io.ReadSeeker, size int, track *Track
 		if (flags & 0x400) > 0 {
 			reader.Seek(4, 1)
 		}
+		/* Read sample composition offset to compute DTS */
 		if (flags & 0x800) > 0 {
 			tmp, _ := utils.AtomReadInt32(reader)
 			composition = int64(tmp)
 		}
+		/* Increment current decodeTime with duration */
 		decodeTime += duration
+		/* Compute sample fields */
 		sample.dts = sample.pts + composition - d.mediaTime
 		sample.keyFrame = (i == 0 || track.isAudio)
 		sample.duration = duration
+		/* Append sample to track */
 		track.appendSample(sample)
 	}
 }
 
+/* Extract base timing info from DASH TFDT atom */
 func (d *DASHDemuxer) parseDASHTFDT(reader io.ReadSeeker, size int, track *Track) {
 	version, _ := utils.AtomReadInt8(reader)
 	reader.Seek(3, 1)
@@ -428,8 +462,10 @@ func (d *DASHDemuxer) parseDASHTFDT(reader io.ReadSeeker, size int, track *Track
 
 }
 
+/* Parse a DASH chunk, either an init or data */
 func (d *DASHDemuxer) parseDASHFile(url string, track *Track) error {
 	var size int
+	/* Retrieve chunk data */
 	resp, err := http.Get(url)
 	if err != nil {
 		return err
@@ -439,9 +475,11 @@ func (d *DASHDemuxer) parseDASHFile(url string, track *Track) error {
 	if err != nil {
 		return err
 	}
+	/* Retrieve reader from dowloaded data */
 	reader := bytes.NewReader(buffer)
 	d.mutex.Lock()
 	for {
+		/* Read atoms until the end of file */
 		tag, err := utils.ReadAtomHeader(reader, &size)
 		if err != nil && err != io.EOF {
 			d.mutex.Unlock()
@@ -450,6 +488,7 @@ func (d *DASHDemuxer) parseDASHFile(url string, track *Track) error {
 			d.mutex.Unlock()
 			return nil
 		}
+		/* Call corresponding atom function or skip if there is none */
 		if d.atomParsers[tag] != nil {
 			d.atomParsers[tag](d, reader, size, track)
 		} else if !containerDASHAtom(tag) {
@@ -460,6 +499,7 @@ func (d *DASHDemuxer) parseDASHFile(url string, track *Track) error {
 	return nil
 }
 
+/* Extract DASH duration from manifest */
 func parseDASHDuration(duration string) float64 {
 	var res float64
 	match := DurationRegexp.FindStringSubmatch(duration)
@@ -488,21 +528,26 @@ func parseDASHDuration(duration string) float64 {
 	return res
 }
 
+/* Retrieve URL for all chunks passed as argument */
 func (d *DASHDemuxer) getChunksURL(adaptationSet DASHXMLAdaptionSet, representation DASHXMLRepresentation) *utils.Queue {
 	res := utils.Queue{}
 	time := 0
 	number := adaptationSet.Template.StartNumber
+	/* Iterate over each adaptation set in manifest */
 	for i := 0; i < len(adaptationSet.Template.Segments); i++ {
 		if adaptationSet.Template.Segments[i].Time > 0 {
 			time = adaptationSet.Template.Segments[i].Time
 		}
+		/* Iterate over each segment in representation */
 		for j := 0; j < adaptationSet.Template.Segments[i].Repetition + 1; j++ {
+			/* Build URL from template */
 			name := adaptationSet.Template.Media
 			name = strings.Replace(name, "$RepresentationID$", representation.Id, 1)
 			name = strings.Replace(name, "$Bandwidth$", representation.Bandwidth, 1)
 			name = strings.Replace(name, "$Time$", strconv.Itoa(time), 1)
 			name = strings.Replace(name, "$Number$", strconv.Itoa(number), 1)
 			res.Push(d.baseURL + "/" + name)
+			/* Increment time from duration for next chunk */
 			time += adaptationSet.Template.Segments[i].Duration
 			number += 1
 		}
@@ -510,19 +555,26 @@ func (d *DASHDemuxer) getChunksURL(adaptationSet DASHXMLAdaptionSet, representat
 	return &res
 }
 
+/* Parse a DASH manifest and extract all tracks declared in it */
 func (d *DASHDemuxer) parseDASHManifest(manifest *DASHManifest, tracks *[]*Track) error {
 	var track *Track
+	/* Retrieve duration */
 	duration := parseDASHDuration(manifest.Duration)
 	acc := 0
 	d.chunksURL = make(map[int]*utils.Queue)
+	/* Iterate over each adaptation set */
 	for i := 0; i < len(manifest.Period.AdaptationSets); i++ {
+		/* Iterate over each representation */
 		for j := 0; j < len(manifest.Period.AdaptationSets[i].Representations); j++ {
+			/* Add nex track and fill common info */
 			track = new(Track)
 			track.index = acc
 			track.SetTimeFields()
+			/* Build init chunk URL */
 			name := manifest.Period.AdaptationSets[i].Template.Initialization
 			name = strings.Replace(name, "$RepresentationID$", manifest.Period.AdaptationSets[i].Representations[j].Id, 1)
 			name = strings.Replace(name, "$Bandwidth$", manifest.Period.AdaptationSets[i].Representations[j].Bandwidth, 1)
+			/* Parse init chunk and extract info */
 			err := d.parseDASHFile(d.baseURL + "/" + name, track)
 			if err != nil {
 				return err
@@ -540,18 +592,22 @@ func (d *DASHDemuxer) parseDASHManifest(manifest *DASHManifest, tracks *[]*Track
 	return nil
 }
 
+/* Retrieve all tracks from a DASH source */
 func (d *DASHDemuxer) GetTracks(tracks *[]*Track) error {
+	/* Retrieve manifest */
 	var manifest DASHManifest
 	resp, err := http.Get(d.manifestURL)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+	/* Transform XML to usable data structures */
 	decoder := xml.NewDecoder(resp.Body)
 	err = decoder.Decode(&manifest)
 	if err != nil {
 		return err
 	}
+	/* Parse manifest */
 	err = d.parseDASHManifest(&manifest, tracks)
 	if err != nil {
 		return err
@@ -559,6 +615,7 @@ func (d *DASHDemuxer) GetTracks(tracks *[]*Track) error {
 	return err
 }
 
+/* Clean demuxer internal info */
 func (d *DASHDemuxer) Close() {
 	for k := range d.chunksURL {
 		d.chunksURL[k].Clear()
@@ -567,16 +624,20 @@ func (d *DASHDemuxer) Close() {
 	}
 }
 
+/* Extract samples from one chunk for each track declared */
 func (d *DASHDemuxer) ExtractChunk(tracks *[]*Track, isLive bool) bool {
 	var track *Track
 	var waitList []chan error
 	res := false
+	/* Iterate over collection of chunk URL list */
 	for k := range d.chunksURL {
 		res = res || !d.chunksURL[k].Empty()
 		if d.chunksURL[k].Empty() {
+			/* No URL left and it is not live so do nothing */
 			continue
 		}
 		track = nil
+		/* Look for the corresponding track */
 		for i := 0; i < len(*tracks); i++ {
 			if (*tracks)[i].index == k {
 				track = (*tracks)[i]
@@ -584,6 +645,7 @@ func (d *DASHDemuxer) ExtractChunk(tracks *[]*Track, isLive bool) bool {
 			}
 		}
 		if track != nil {
+			/* Retrieve URL to chunk and parallelised download and parsing */
 			url := d.chunksURL[k].Pop().(string)
 			c := make(chan error)
 			go func(c chan error, track *Track) {
@@ -592,6 +654,7 @@ func (d *DASHDemuxer) ExtractChunk(tracks *[]*Track, isLive bool) bool {
 			waitList = append(waitList, c)
 		}
 	}
+	/* Wait for all parsing routines to end */
 	for i := 0; i < len(waitList); i++ {
 		<- waitList[i]
 		close(waitList[i])

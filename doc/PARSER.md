@@ -99,30 +99,35 @@ type DASHDemuxer struct {
 }
 ```
 
+Demuxer structure foàr DASH streaming parsing
 
 #### func (*DASHDemuxer) Close
 
 ```go
 func (d *DASHDemuxer) Close()
 ```
+Clean demuxer internal info
 
 #### func (*DASHDemuxer) ExtractChunk
 
 ```go
 func (d *DASHDemuxer) ExtractChunk(tracks *[]*Track, isLive bool) bool
 ```
+Extract samples from one chunk for each track declared
 
 #### func (*DASHDemuxer) GetTracks
 
 ```go
 func (d *DASHDemuxer) GetTracks(tracks *[]*Track) error
 ```
+Retrieve all tracks from a DASH source
 
 #### func (*DASHDemuxer) Open
 
 ```go
 func (d *DASHDemuxer) Open(path string) error
 ```
+Initialise DASH demuxer
 
 #### type DASHManifest
 
@@ -343,30 +348,35 @@ type SmoothDemuxer struct {
 }
 ```
 
+Demuxer structure for smooth streaming parsing
 
 #### func (*SmoothDemuxer) Close
 
 ```go
 func (d *SmoothDemuxer) Close()
 ```
+Clean demuxer internal info
 
 #### func (*SmoothDemuxer) ExtractChunk
 
 ```go
 func (d *SmoothDemuxer) ExtractChunk(tracks *[]*Track, isLive bool) bool
 ```
+Extract samples from one chunk for each track declared
 
 #### func (*SmoothDemuxer) GetTracks
 
 ```go
 func (d *SmoothDemuxer) GetTracks(tracks *[]*Track) error
 ```
+Retrieve all tracks from a smooth source
 
 #### func (*SmoothDemuxer) Open
 
 ```go
 func (d *SmoothDemuxer) Open(path string) error
 ```
+Initialise smooth demuxer structure
 
 #### type SmoothProtectionHeader
 
@@ -443,6 +453,7 @@ type SmoothTrackInfo struct {
 }
 ```
 
+Structure used to hold track specific information for smooth streaming
 
 #### type SubSampleEncryption
 

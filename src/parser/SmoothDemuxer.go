@@ -78,12 +78,14 @@ type SmoothStreamingMedia struct {
 
 type SmoothAtomParser func (d *SmoothDemuxer, reader io.ReadSeeker, size int, t *Track)
 
+/* Structure used to hold track specific information for smooth streaming */
 type SmoothTrackInfo struct {
 	baseDecodeTime int64
 	bitrate        int
 	urlTemplate    string
 }
 
+/* Demuxer structure for smooth streaming parsing */
 type SmoothDemuxer struct {
 	manifestURL string
 	baseURL string
@@ -98,6 +100,7 @@ func containerSmoothAtom(tag string) bool {
 	return tag == "moof" || tag == "traf"
 }
 
+/* Recover samples from smooth streaming MDAT atom */
 func (d *SmoothDemuxer) parseSmoothMDAT(reader io.ReadSeeker, size int, track *Track) {
 	for i := 0; i < len(track.samples); i++ {
 		buffer, _ := utils.AtomReadBuffer(reader, int(track.samples[i].size))
@@ -105,6 +108,7 @@ func (d *SmoothDemuxer) parseSmoothMDAT(reader io.ReadSeeker, size int, track *T
 	}
 }
 
+/* Retrieve default sample duration if present from smooth streaming TFHD atom */
 func (d *SmoothDemuxer) parseSmoothTFHD(reader io.ReadSeeker, size int, track *Track) {
 	flags, _ := utils.AtomReadInt32(reader)
 	reader.Seek(4, 1)
@@ -133,28 +137,32 @@ func smoothPacketFinalizer(s *Sample) {
 	CFree(s.data)
 }
 
+/* Extract samples informations from smooth streaming TRUN atom */
 func (d *SmoothDemuxer) parseSmoothTRUN(reader io.ReadSeeker, size int, track *Track) {
 	flags, _ := utils.AtomReadInt32(reader)
 	count, _ := utils.AtomReadInt32(reader)
 	duration := d.defaultSampleDuration
 	composition := int64(0)
 	decodeTime := d.trackInfos[track.index].baseDecodeTime
-
+	/* Skip unused values if present */
 	if (flags & 0x1) > 0 {
 		reader.Seek(4, 1)
 	}
 	if (flags & 0x4) > 0 {
 		reader.Seek(4, 1)
 	}
-
+	/* Iteration over each declared sample */
 	for i := 0; i < count; i++ {
+		/* Construct sample and set finalizer for memory liberation */
 		sample := new(Sample)
 		runtime.SetFinalizer(sample, smoothPacketFinalizer)
 		sample.pts = decodeTime
+		/* Read duration from atom if present, use default duration otherwise */
 		if (flags & 0x100) > 0 {
 			tmp, _ := utils.AtomReadInt32(reader)
 			duration = int64(tmp)
 		}
+		/* Read sample size */
 		if (flags & 0x200) > 0 {
 			size, _ := utils.AtomReadInt32(reader)
 			sample.size = CInt(size)
@@ -162,28 +170,35 @@ func (d *SmoothDemuxer) parseSmoothTRUN(reader io.ReadSeeker, size int, track *T
 		if (flags & 0x400) > 0 {
 			reader.Seek(4, 1)
 		}
+		/* Read sample composition offset to compute DTS */
 		if (flags & 0x800) > 0 {
 			tmp, _ := utils.AtomReadInt32(reader)
 			composition = int64(tmp)
 		}
+		/* Increment current decodeTime with duration */
 		decodeTime += duration
+		/* Compute sample fields */
 		sample.dts = sample.pts + composition
 		sample.keyFrame = (i == 0 || track.isAudio)
 		sample.duration = duration
+		/* Append sample to track */
 		track.appendSample(sample)
 	}
+	/* Update demuxer decode time for the current track for future reuse */
 	d.trackInfos[track.index].baseDecodeTime = decodeTime
 }
 
+/* Extract sample encryption info from smooth streaming SENC atom */
 func parseSMOOTHSENC(reader io.ReadSeeker, track *Track) {
 	flags, _ := utils.AtomReadInt32(reader)
 	if flags & 0x1 > 0 {
 		reader.Seek(20, 1)
 	}
 	count, _ := utils.AtomReadInt32(reader)
+	/* Iterate over each declared sample */
 	for i := 0; i < count; i++ {
+		/* Add encryption infos for sample. TODO : handle size != 8 */
 		track.samples[i].encrypt = new(SampleEncryption)
-		/* ASSUME size = 8 */
 		track.samples[i].encrypt.initializationVector, _ = utils.AtomReadBuffer(reader, 8)
 		if flags & 0x2 > 0 {
 			track.encryptInfos.subEncrypt = true
@@ -197,6 +212,7 @@ func parseSMOOTHSENC(reader io.ReadSeeker, track *Track) {
 	}
 }
 
+/* Parse a smooth UUID atom : skip if unknown, otherwise call real parsing function */
 func (d *SmoothDemuxer) parseSmoothUUID(reader io.ReadSeeker, size int, track *Track) {
 	high, _ := utils.AtomReadInt64(reader)
 	low, _ := utils.AtomReadInt64(reader)
@@ -207,6 +223,7 @@ func (d *SmoothDemuxer) parseSmoothUUID(reader io.ReadSeeker, size int, track *T
 	}
 }
 
+/* Build audio extradata for MP4A/ENCA atom using info from manifest */
 func (d *SmoothDemuxer) buildAudioExtradata(privateData string, freq int, chans int) []byte {
 	if privateData != "" {
 		res, _ := hex.DecodeString(privateData)
@@ -226,6 +243,7 @@ func (d *SmoothDemuxer) buildAudioExtradata(privateData string, freq int, chans 
 	}
 }
 
+/* Build video extradata for AVCC/ENCV atom using info from manifest */
 func (d *SmoothDemuxer) buildVideoExtradata(privateData string) []byte {
 	split := strings.Split(privateData, "00000001")
 	sps, _ := hex.DecodeString(split[1])
@@ -245,12 +263,14 @@ func (d *SmoothDemuxer) buildVideoExtradata(privateData string) []byte {
 	)...)
 }
 
+/* Build URL to retrieve one chunk using template from manifest */
 func (d *SmoothDemuxer) buildChunkURL(time int64, bitrate int, url string) string {
 	suffix := strings.Replace(url, "{start time}", strconv.FormatInt(time, 10), 1)
 	suffix = strings.Replace(suffix, "{bitrate}", strconv.Itoa(bitrate), 1)
 	return d.baseURL + "/" + suffix
 }
 
+/* Retrieve URL for all chunks passed as argument */
 func (d *SmoothDemuxer) getChunksURL(bitrate int, url string, chunks []SmoothChunk) *utils.Queue {
 	res := utils.Queue{}
 	current := chunks[0].StartTime
@@ -261,6 +281,7 @@ func (d *SmoothDemuxer) getChunksURL(bitrate int, url string, chunks []SmoothChu
 	return &res
 }
 
+/* Build widevine challenge using keyId extracted from manifest */
 func buildWidevinePSS(key []byte) pss {
 	blob := []byte{
 		0x8, 0x1, 0x12, 0x10,
@@ -269,7 +290,9 @@ func buildWidevinePSS(key []byte) pss {
 	return pss{"EDEF8BA979D64ACEA3C827DCD51D21ED", blob}
 }
 
+/* Extract keyId from playReady callenge */
 func extractKeyId(data []byte) []byte {
+	/* Convert utf16 to usable byte array */
 	shorts := make([]uint16, len(data)/2 - 5)
 	for i := 0; i < len(data) - 10; i += 2 {
 		shorts[(i)/2] = (uint16(data[i + 11]) << 8) | uint16(data[i + 10])
@@ -278,6 +301,7 @@ func extractKeyId(data []byte) []byte {
 	if err != nil {
 		return nil
 	}
+	/* Encode string in hex and convert from GUID to UUID */
 	key := hex.EncodeToString(bytes)
 	res, err := hex.DecodeString(string([]uint8{
 		key[6], key[7], key[4], key[5], key[2], key[3], key[0], key[1],
@@ -293,38 +317,48 @@ func extractKeyId(data []byte) []byte {
 	return res
 }
 
+/* Build encryption info for a track using info from manifest */
 func (d *SmoothDemuxer) buildEncryptionInfos(headers []SmoothProtectionHeader) *EncryptionInfo {
 	var res EncryptionInfo
 	var i int
+	/* Look for playReady protection header */
 	for i = 0; i < len(headers); i++ {
 		if strings.ToUpper(headers[i].SystemId) == "9A04F079-9840-4286-AB92-E65BE0885F95" {
 			break
 		}
 	}
+	/* Decode playReady base64 blob */
 	blob, err := base64.StdEncoding.DecodeString(headers[i].Blob)
 	if err != nil {
 		return nil
 	}
+	/* Extract keyId from decoded blob and store it in track encryption info */
 	keyId := extractKeyId(blob)
 	res.keyId = hex.EncodeToString(keyId)
 	if err != nil {
 		return nil
 	}
+	/* Add challenges for Widevine and playReady */
 	res.pssList = append(res.pssList, buildWidevinePSS(keyId))
 	res.pssList = append(res.pssList, pss{"9A04F07998404286AB92E65BE0885F95", blob})
 	return &res
 }
 
+/* Parse a smooth manifest and extract all tracks declared in it */
 func (d *SmoothDemuxer) parseSmoothManifest(manifest *SmoothStreamingMedia, tracks *[]*Track) error {
 	var track *Track
+	/* If no timescale declared, used default one */
 	if manifest.Timescale == 0 {
 		manifest.Timescale = 10000000
 	}
 	acc := 0
 	d.chunksURL = make(map[int]*utils.Queue)
 	d.trackInfos = make(map[int]*SmoothTrackInfo)
+	/* Iterate over each stream declaration */
 	for i := 0; i < len(manifest.StreamIndexes); i++ {
+		/* Iterator over each quality declared */
 		for j := 0; (manifest.StreamIndexes[i].Type == "audio" || manifest.StreamIndexes[i].Type == "video") && j < len(manifest.StreamIndexes[i].QualityInfos); j++ {
+			/* Add new track and fill common info */
 			track = new(Track)
 			track.index = acc
 			track.isAudio = (manifest.StreamIndexes[i].Type == "audio")
@@ -333,22 +367,27 @@ func (d *SmoothDemuxer) parseSmoothManifest(manifest *SmoothStreamingMedia, trac
 			track.duration = manifest.Duration
 			track.bandwidth = manifest.StreamIndexes[i].QualityInfos[j].Bitrate
 			if track.isAudio {
+				/* Fill audio specific info */
 				track.sampleRate = manifest.StreamIndexes[i].QualityInfos[j].SamplingRate
 				track.extradata = d.buildAudioExtradata(manifest.StreamIndexes[i].QualityInfos[j].CodecPrivateData, manifest.StreamIndexes[i].QualityInfos[j].SamplingRate, manifest.StreamIndexes[i].QualityInfos[j].Channels)
 			} else {
+				/* Fill audio specific info */
 				track.width = manifest.StreamIndexes[i].QualityInfos[j].MaxWidth
 				track.height = manifest.StreamIndexes[i].QualityInfos[j].MaxHeight
 				track.bitsPerSample = 0
 				track.colorTableId = 24
 				track.extradata = d.buildVideoExtradata(manifest.StreamIndexes[i].QualityInfos[j].CodecPrivateData)
 			}
+			/* If manifest has encryption info, extract them */
 			if len(manifest.Protection) > 0 {
 				track.encryptInfos = d.buildEncryptionInfos(manifest.Protection)
 			}
 			acc += 1
 			track.SetTimeFields()
 			*tracks = append(*tracks, track)
+			/* Retrieve URL for every chunk declared in the manifest */
 			d.chunksURL[track.index] = d.getChunksURL(manifest.StreamIndexes[i].QualityInfos[j].Bitrate, manifest.StreamIndexes[i].Url, manifest.StreamIndexes[i].ChunksInfos)
+			/* Store specific information for future reuse */
 			d.trackInfos[track.index] = new(SmoothTrackInfo)
 			d.trackInfos[track.index].baseDecodeTime = manifest.StreamIndexes[i].ChunksInfos[0].StartTime
 			d.trackInfos[track.index].urlTemplate = manifest.StreamIndexes[i].Url
@@ -359,6 +398,7 @@ func (d *SmoothDemuxer) parseSmoothManifest(manifest *SmoothStreamingMedia, trac
 	return nil
 }
 
+/* Initialise smooth demuxer structure */
 func (d *SmoothDemuxer) Open(path string) error {
 	d.manifestURL = "http://" + path
 	d.baseURL = "http://" + filepath.Dir(path)
@@ -370,18 +410,22 @@ func (d *SmoothDemuxer) Open(path string) error {
 	return nil
 }
 
+/* Retrieve all tracks from a smooth source */
 func (d *SmoothDemuxer) GetTracks(tracks *[]*Track) error {
+	/* Retrieve manifest */
 	var manifest SmoothStreamingMedia
 	resp, err := http.Get(d.manifestURL)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+	/* Transform XML to usable data structures */
 	decoder := xml.NewDecoder(resp.Body)
 	err = decoder.Decode(&manifest)
 	if err != nil {
 		return err
 	}
+	/* Parse manifest */
 	err = d.parseSmoothManifest(&manifest, tracks)
 	if err != nil {
 		return err
@@ -389,8 +433,10 @@ func (d *SmoothDemuxer) GetTracks(tracks *[]*Track) error {
 	return err
 }
 
+/* Parse samples from a smooth chunk and add it to a track */
 func (d *SmoothDemuxer) parseSmoothChunk(url string, track *Track) error {
 	var size int
+	/* Retrieve chunk */
 	resp, err := http.Get(url)
 	if err != nil {
 		return err
@@ -400,9 +446,11 @@ func (d *SmoothDemuxer) parseSmoothChunk(url string, track *Track) error {
 	if err != nil {
 		return err
 	}
+	/* Retrieve reader from dowloaded data */
 	reader := bytes.NewReader(buffer)
 	d.mutex.Lock()
 	for {
+		/* Read atoms until the end of file */
 		tag, err := utils.ReadAtomHeader(reader, &size)
 		if err != nil && err != io.EOF {
 			d.mutex.Unlock()
@@ -411,6 +459,7 @@ func (d *SmoothDemuxer) parseSmoothChunk(url string, track *Track) error {
 			d.mutex.Unlock()
 			return nil
 		}
+		/* Call corresponding atom function or skip if there is none */
 		if d.atomParsers[tag] != nil {
 			d.atomParsers[tag](d, reader, size, track)
 		} else if !containerSmoothAtom(tag) {
@@ -421,30 +470,35 @@ func (d *SmoothDemuxer) parseSmoothChunk(url string, track *Track) error {
 	return nil
 }
 
-
+/* Clean demuxer internal info */
 func (d *SmoothDemuxer) Close() {
 	for k := range d.chunksURL {
 		d.chunksURL[k].Clear()
 		d.chunksURL[k] = nil
 		delete(d.chunksURL, k)
 	}
-	/*for k := range d.baseDecodeTime {
+	for k := range d.baseDecodeTime {
 		delete(d.baseDecodeTime, k)
-	}*/
+	}
 }
 
+/* Extract samples from one chunk for each track declared */
 func (d *SmoothDemuxer) ExtractChunk(tracks *[]*Track, isLive bool) bool {
 	var track *Track
 	var waitList []chan error
 	res := false
+	/* Iterate over collection of chunk URL list */
 	for k := range d.chunksURL {
 		res = res || !d.chunksURL[k].Empty()
 		if d.chunksURL[k].Empty() && !isLive {
+			/* No URL left and it is not live so do nothing */
 			continue
 		} else if isLive {
+			/* No URL left but it is live so build next chunk URL */
 			d.chunksURL[k].Push(d.buildChunkURL(d.trackInfos[k].baseDecodeTime, d.trackInfos[k].bitrate, d.trackInfos[k].urlTemplate))
 		}
 		track = nil
+		/* Look for the corresponding track */
 		for i := 0; i < len(*tracks); i++ {
 			if (*tracks)[i].index == k {
 				track = (*tracks)[i]
@@ -452,6 +506,7 @@ func (d *SmoothDemuxer) ExtractChunk(tracks *[]*Track, isLive bool) bool {
 			}
 		}
 		if track != nil {
+			/* Retrieve URL to chunk and parallelised download and parsing */
 			url := d.chunksURL[k].Pop().(string)
 			c := make(chan error)
 			go func(c chan error, track *Track) {
@@ -460,6 +515,7 @@ func (d *SmoothDemuxer) ExtractChunk(tracks *[]*Track, isLive bool) bool {
 			waitList = append(waitList, c)
 		}
 	}
+	/* Wait for all parsing routines to end */
 	for i := 0; i < len(waitList); i++ {
 		<- waitList[i]
 		close(waitList[i])
