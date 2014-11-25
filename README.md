@@ -52,6 +52,6 @@ Route                 | Method | Behaviour
 /files                | GET    | Return : {name, proto, path, isLive, generated}
 /files                | POST   | Add an element for generation
 /files/upload         | POST   | Upload a file and add it for generation
-/dash/<name>/generate | POST   | Start generation of a file/stream
-/dash/<name>/generate | DELETE | Stop generation of chunks/manifest for live only
-/dash/<name>/<elm>    | GET    | Return file (chunk or manifest)
+/dash/:name:/generate | POST   | Start generation of a file/stream
+/dash/:name:/generate | DELETE | Stop generation of chunks/manifest for live only
+/dash/:name:/<elm>    | GET    | Return file (chunk or manifest)
