@@ -477,8 +477,8 @@ func (d *SmoothDemuxer) Close() {
 		d.chunksURL[k] = nil
 		delete(d.chunksURL, k)
 	}
-	for k := range d.baseDecodeTime {
-		delete(d.baseDecodeTime, k)
+	for k := range d.trackInfos {
+		delete(d.trackInfos, k)
 	}
 }
 

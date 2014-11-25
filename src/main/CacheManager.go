@@ -13,14 +13,15 @@ import (
   $CACHED_DIR/$FILENAME/chunk1.mp4
 */
 
-type available struct {
-	Proto  string
-	Path   string
-	Name   string
-	IsLive bool
+type Available struct {
+	Proto     string
+	Path      string
+	Name      string
+	IsLive    bool
+	Generated bool
 }
 
-func (a available) checkProto() bool {
+func (a Available) checkProto() bool {
 	authorized := parser.GetAuthorizedProtocols()
 	for _, proto := range authorized {
 		if proto == a.Proto {
@@ -34,7 +35,7 @@ func (a available) checkProto() bool {
 type CacheManager struct {
 	videoDir   string
 	cachedDir  string
-	availables []available
+	availables []Available
 	cached     []string
 	converter  DASHBuilder
 	converting map[string]bool
@@ -49,7 +50,7 @@ func (c *CacheManager) BuildAvailables() {
 	fileInfos, err := dir.Readdir(-1)
 	if err != nil { return }
 	for _, fi := range fileInfos {
-		c.availables = append(c.availables, available{
+		c.availables = append(c.availables, Available{
 			Proto : "file",
 			Name : utils.RemoveExtension(fi.Name()),
 			Path : filepath.Join(c.videoDir, fi.Name()),
@@ -66,7 +67,13 @@ func (c *CacheManager) BuildCached() {
 	fileInfos, err := dir.Readdir(-1)
 	if err != nil { return }
 	for _, fi := range fileInfos {
-		c.cached = append(c.cached, utils.RemoveExtension(fi.Name()))
+		filename := utils.RemoveExtension(fi.Name())
+		c.cached = append(c.cached, filename)
+		for i := 0; i < len(c.availables); i++ {
+			if c.availables[i].Name == filename {
+				c.availables[i].Generated = true
+			}
+		}
 	}
 }
 
@@ -142,24 +149,18 @@ func (c *CacheManager) buildIfNeeded(filename string) error {
 	return nil
 }
 
-/* Return manifest for a file, build it if it does not exist */
-func (c *CacheManager) GetManifest(filename string) (string, error) {
-	if err := c.buildIfNeeded(filename); err != nil {
-		return "", err
-	}
-	return filepath.Join(c.cachedDir, filename, "manifest.mpd"), nil
+/* Build an element if it does not exist */
+func (c *CacheManager) Build(filename string) error {
+	return c.buildIfNeeded(filename)
 }
 
-/* Return a chunk from a file, build all if it does not exist */
-func (c *CacheManager) GetChunk(filename string, chunk string) (string, error) {
-	if err := c.buildIfNeeded(filename); err != nil {
-		return "", err
-	}
-	return filepath.Join(c.cachedDir, filename, chunk), nil
+/* Return element for a file */
+func (c *CacheManager) GetElement(filename string, element string) (string, error) {
+	return filepath.Join(c.cachedDir, filename, element), nil
 }
 
 /* Add an available to the list for building */
-func (c *CacheManager) AddAvailable(av available) error {
+func (c *CacheManager) AddAvailable(av Available) error {
 	if !(av.checkProto()) {
 		return errors.New("Incorrect protocol '" + av.Proto + "' !")
 	}
@@ -169,7 +170,7 @@ func (c *CacheManager) AddAvailable(av available) error {
 
 /* Add a file to the list of available file for building */
 func (c *CacheManager) AddFile(path string) error {
-	c.availables = append(c.availables, available{
+	c.availables = append(c.availables, Available{
 		Proto : "file",
 		Name : utils.RemoveExtension(filepath.Base(path)),
 		Path : path,

@@ -43,3 +43,15 @@ Usage of ./bin/DashMe:
   -port="3000": TCP port used when starting the API
   -video="/home/aubin/Workspace/videos/": Directory containing the videos
 ```
+
+REST Interface
+--------------
+
+Route                 | Method | Behaviour
+----------------------|--------|--------------------------------------------------
+/files                | GET    | Return : {name, proto, path, isLive, generated}
+/files                | POST   | Add an element for generation
+/files/upload         | POST   | Upload a file and add it for generation
+/dash/<name>/generate | POST   | Start generation of a file/stream
+/dash/<name>/generate | DELETE | Stop generation of chunks/manifest for live only
+/dash/<name>/<elm>    | GET    | Return file (chunk or manifest)

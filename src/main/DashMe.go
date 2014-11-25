@@ -14,7 +14,7 @@ const (
 	DEFAULT_CACHED_DIR = "/tmp/DashMe"
 )
 
-/* /files handler */
+/* GET /files handler */
 func filesRouteHandler(cache *CacheManager, serverChan chan error) RouteHandler {
 	return func (w http.ResponseWriter, r *http.Request, params map[string]string) {
 		w.Header().Set("Content-Type", "application/json")
@@ -26,10 +26,10 @@ func filesRouteHandler(cache *CacheManager, serverChan chan error) RouteHandler 
 	}
 }
 
-/* /files handler */
+/* POST /files handler */
 func filesAddRouteHandler(cache *CacheManager, serverChan chan error) RouteHandler {
 	return func (w http.ResponseWriter, r *http.Request, params map[string]string) {
-		var av available
+		var av Available
 		decoder := json.NewDecoder(r.Body)
 		err := decoder.Decode(&av)
 		if err == nil {
@@ -44,10 +44,10 @@ func filesAddRouteHandler(cache *CacheManager, serverChan chan error) RouteHandl
 	}
 }
 
-/* /manifest/<filename> handler */
-func manifestRouteHandler(cache *CacheManager, serverChan chan error) RouteHandler {
+/* GET /dash/<filename>/<elm> handler */
+func elementRouteHandler(cache *CacheManager, serverChan chan error) RouteHandler {
 	return func (w http.ResponseWriter, r *http.Request, params map[string]string) {
-		path, err := cache.GetManifest(params["filename"])
+		path, err := cache.GetElement(params["filename"], params["elm"])
 		if err != nil {
 			serverChan <- err
 			http.Error(w, "Invalid request !", http.StatusNotFound)
@@ -57,18 +57,19 @@ func manifestRouteHandler(cache *CacheManager, serverChan chan error) RouteHandl
 	}
 }
 
-/* /manifest/<filename>/<chunk> handler */
-func chunkRouteHandler(cache *CacheManager, serverChan chan error) RouteHandler {
+/* POST /dash/<filename>/generate handler */
+func generationHandler(cache *CacheManager, serverChan chan error) RouteHandler {
 	return func (w http.ResponseWriter, r *http.Request, params map[string]string) {
-		path, err := cache.GetChunk(params["filename"], params["chunk"])
+		err := cache.Build(params["filename"])
 		if err != nil {
 			serverChan <- err
 			http.Error(w, "Invalid request !", http.StatusNotFound)
 		} else {
-			http.ServeFile(w, r, path)
+			fmt.Fprintf(w, "")
 		}
 	}
 }
+
 
 func parseCommandLine(port *string, videoDir *string, cachedDir *string) {
 	tmpPort := flag.String("port", DEFAULT_PORT, "TCP port used when starting the API")
@@ -109,8 +110,10 @@ func main() {
 	/* Initialise route handling */
 	server.addRoute("GET", "/files", filesRouteHandler(&cache, serverChan))
 	server.addRoute("POST", "/files", filesAddRouteHandler(&cache, serverChan))
-	server.addRoute("GET", "/dash/:filename/manifest.mpd", manifestRouteHandler(&cache, serverChan))
-	server.addRoute("GET", "/dash/:filename/:chunk", chunkRouteHandler(&cache, serverChan))
+	//server.addRoute("POST", "/files/upload", filesUploadRouteHandler(&cache, serverChan))
+	server.addRoute("GET", "/dash/:filename/:elm", elementRouteHandler(&cache, serverChan))
+	server.addRoute("POST", "/dash/:filename/generate", generationHandler(&cache, serverChan))
+	//server.addRoute("DELETE", "/dash/:filename/generate", stopLiveHandler(&cache, serverChan))
 	/* Start file monitoring */
 	inotifyChan, err := StartInotify(&cache, videoDir)
 	if err != nil {
