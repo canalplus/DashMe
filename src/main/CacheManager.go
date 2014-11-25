@@ -92,12 +92,8 @@ func (c *CacheManager) Initialise(videoDir string, cachedDir string) {
 }
 
 /* Return list of files that can be converted */
-func (c *CacheManager) GetAvailables() []string {
-	var res []string
-	for i := 0; i < len(c.availables); i++ {
-		res = append(res, c.availables[i].Name)
-	}
-	return res
+func (c *CacheManager) GetAvailables() []Available {
+	return c.availables
 }
 
 /* Retrieve path to file according to stored filename */
@@ -145,6 +141,7 @@ func (c *CacheManager) buildIfNeeded(filename string) error {
 	err = c.converter.Build(inPath, filename, c.availables[i].IsLive)
 	delete(c.converting, filename)
 	if err != nil { return err }
+	c.availables[i].Generated = true
 	c.cached = append(c.cached, filename)
 	return nil
 }
