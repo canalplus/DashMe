@@ -1,0 +1,213 @@
+@font-face {
+    font-family: "CdemRom";
+    src: url("/interface/fonts/CanalDemiRomainG7.otf") format("opentype");
+}
+@font-face {
+    font-family: "ClightRom";
+    src: url("/interface/fonts/CanalLightRomainR7.otf") format("opentype");
+}
+
+body {
+    margin: 54px 10% 0 10%;
+    padding: 0;
+    font-family: Arial;
+}
+
+a {
+    color: black;
+    text-decoration: none;
+}
+
+table {
+    display: table;
+    border-collapse: separate;
+    border-spacing: 2px;
+    border-color: gray;
+}
+
+thead {
+    display: table-header-group;
+    vertical-align: middle;
+    border-color: inherit;
+}
+
+tbody {
+    display: table-row-group;
+    vertical-align: middle;
+    border-color: inherit;
+}
+
+tr {
+    display: table-row;
+    vertical-align: inherit;
+    border-color: inherit;
+}
+
+td {
+    padding : 4px
+}
+
+th {
+    padding : 4px
+}
+
+input[type="button"] {
+    cursor: pointer;
+    -webkit-appearance: none;
+    display: inline-block;
+    padding: 4px 12px;
+    margin-bottom: 0;
+    font: bold 14px/18px Arial;
+    -webkit-font-smoothing: antialiased;
+    color: #333333;
+    text-align: center;
+    text-shadow: 0 1px 1px rgba(255, 255, 255, 0.75);
+    vertical-align: middle;
+    background-color: #f5f5f5;
+    background-image: linear-gradient(to bottom, #ffffff, #e6e6e6);
+    background-repeat: repeat-x;
+    border: 1px solid #bbbbbb;
+    border-color: rgba(0, 0, 0, 0.2) rgba(0, 0, 0, 0.25) rgba(0, 0, 0, 0.4);
+    border-radius: 2px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+input[type="text"] {
+    border: 1px solid #7f7f7f;
+    padding: 4px 5px;
+    font: normal 14px/18px Arial;
+    border-radius: 2px;
+}
+
+#upper-title {
+    height: 48px;
+    z-index: 1000;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: 0 20px;
+    background-color: #1b1b1b;
+    background-image: linear-gradient(to bottom, #222222, #111111);
+    background-repeat: repeat-x;
+    text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
+}
+
+.brand {
+    float : left;
+    font: normal 20px/26px "ClightRom";
+    -webkit-font-smoothing: antialiased;
+    color: #888;
+    display: block;
+    padding-top: 10px;
+    margin-top: 6px;
+    margin-right : 24px;
+}
+
+table.element-list {
+    border-collapse: collapse;
+    border-spacing: 0px;
+    table-layout: fixed;
+    vertical-align: top;
+    width: 100%;
+}
+
+table.element-list thead {
+    text-transform: uppercase;
+    text-align: left;
+    font: bold 16px Arial;
+}
+
+table.element-list thead tr {
+    border-bottom: 1px solid #ddd;
+}
+
+table.element-list tbody tr {
+    height: 40px;
+}
+
+#upper-title div {
+    text-align: right
+}
+
+#upper-title input {
+    margin-top : 12px;
+    margin-left : 10px;
+}
+
+td.generated {
+    color : green
+}
+
+td.generation {
+    color : orange
+}
+
+#modal-background {
+    position: fixed;
+    bottom: 0;
+    right: 0;
+    top: 0;
+    left: 0;
+    opacity: 0.4;
+    background-color: #000000;
+    transition: opacity 0.15s linear;
+}
+
+#modal {
+    position: absolute;
+    top : 60px;
+    left : 50%;
+    z-index: 2;
+}
+
+#modal .base {
+    position: relative;
+    background-color: white;
+    border : 2px solid #eee;
+    border-radius : 4px;
+    padding : 8px;
+    left: -50%;
+}
+
+#modal div.title {
+    margin : 5px;
+    border-bottom : 1px solid #eee;
+    text-transform: uppercase;
+    text-align: left;
+    font: bold 16px Arial;
+}
+
+div.form-line {
+    padding : 5px;
+}
+
+div.form-line label {
+    width : 100px;
+    margin : 4px;
+    display : inline-block;
+}
+
+#modal div.footer {
+    margin : 5px;
+    border-top : 1px solid #eee;
+    text-transform: uppercase;
+    text-align: center;
+    font: bold 16px Arial;
+}
+
+#modal div.footer input {
+    margin-top : 10px;
+}
+
+#modal div.footer input:first-child {
+    margin-right: 10px;
+}
+
+input[type="text"].error {
+    border-color: rgb(190, 45, 45);
+}
+
+.invisible {
+    display : none;
+}

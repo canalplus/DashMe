@@ -28,21 +28,30 @@ func RemoveExtension(filename string) string {
 
 /* parse an URL and extract information according to a pattern */
 func ParseURL(pattern string, path string, params *map[string]string) bool {
+	var i int
 	patternSplit := strings.Split(pattern, "/")
 	pathSplit := strings.Split(path, "/")
-	if len(patternSplit) != len(pathSplit) {
-		return false
-	}
-	for i := 0; i < len(patternSplit); i++ {
-		if len(patternSplit[i]) != 0 && patternSplit[i][0] == ':' && pathSplit[i] != "" {
+	for i = 0; i < len(patternSplit); i++ {
+		if i >= len(pathSplit) {
+			return false
+		} else if len(patternSplit[i]) != 0 && patternSplit[i][0] == ':' && pathSplit[i] != "" {
 			if params != nil {
 				(*params)[strings.Trim(patternSplit[i], ":")] = pathSplit[i]
+			}
+		} else if len(patternSplit[i]) != 0 && patternSplit[i][0] == '*' {
+			if params != nil {
+				name := strings.Trim(patternSplit[i], "*")
+				(*params)[name] = ""
+				for j := i; j < len(pathSplit); j++ {
+					(*params)[name] += "/" + pathSplit[j]
+				}
+				return true
 			}
 		} else if patternSplit[i] != pathSplit[i] {
 			return false
 		}
 	}
-	return true
+	return i == len(pathSplit)
 }
 
 /* Test if a path exist and is a directory */

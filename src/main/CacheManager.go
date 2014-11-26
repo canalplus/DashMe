@@ -19,6 +19,7 @@ type Available struct {
 	Name      string
 	IsLive    bool
 	Generated bool
+	State     string
 }
 
 func (a Available) checkProto() bool {
@@ -93,6 +94,16 @@ func (c *CacheManager) Initialise(videoDir string, cachedDir string) {
 
 /* Return list of files that can be converted */
 func (c *CacheManager) GetAvailables() []Available {
+	for i := 0; i < len(c.availables); i++ {
+		if c.availables[i].Generated {
+			c.availables[i].State = "generated"
+		} else if c.converting[c.availables[i].Name] {
+			c.availables[i].State = "generation"
+		} else {
+			c.availables[i].State = "not generated"
+		}
+
+	}
 	return c.availables
 }
 
