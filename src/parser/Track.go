@@ -508,14 +508,14 @@ func (t *Track) Clean() {
 
 /* Partially clean internal list in order to generate an up to date manifest */
 func (t *Track) CleanForLive() {
-	if len(t.chunksDuration) - (t.chunksDepth + 1) > 0 {
-		t.chunksDuration = t.chunksDuration[:len(t.chunksDuration) - (t.chunksDepth + 1)]
+	if len(t.chunksDuration) > t.chunksDepth {
+		t.chunksDuration = t.chunksDuration[len(t.chunksDuration) - (t.chunksDepth + 1):]
 	}
-	if len(t.chunksSize) - (t.chunksDepth + 1) > 0 {
-		t.chunksSize = t.chunksSize[:len(t.chunksSize) - (t.chunksDepth + 1)]
+	if len(t.chunksSize) > t.chunksDepth {
+		t.chunksSize = t.chunksSize[len(t.chunksSize) - (t.chunksDepth + 1):]
 	}
-	if len(t.chunksName) - (t.chunksDepth + 1) > 0 {
-		t.chunksName = t.chunksName[:len(t.chunksName) - (t.chunksDepth + 1)]
+	if len(t.chunksName) > t.chunksDepth {
+		t.chunksName = t.chunksName[len(t.chunksName) - (t.chunksDepth + 1):]
 	}
 }
 
@@ -560,7 +560,7 @@ func (t *Track) CleanDirectory(path string) {
 	}
 	files, _ := ioutil.ReadDir(path)
 	for _, fi := range files {
-		if strings.Contains(fi.Name(), "chunks_" + name + strconv.Itoa(t.index)) {
+		if strings.Contains(fi.Name(), "chunk_" + name + strconv.Itoa(t.index)) {
 			i := 0
 			for ; i < len(t.chunksName); i++ {
 				if fi.Name() == t.chunksName[i] {

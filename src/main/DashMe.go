@@ -156,7 +156,6 @@ func parseCommandLine(port *string, videoDir *string, cachedDir *string, interfa
 	}
 }
 
-
 /* Main function */
 func main() {
 	var server       Server

@@ -214,7 +214,7 @@ func liveWorker(demuxer *parser.Demuxer, b *DASHBuilder, outPath string, filenam
 			/* Build manifest */
 			manifest, _ := b.buildManifest(true)
 			/* Write it to file */
-			f, _ := os.OpenFile(filepath.Join(cachedDir, filename, "manifest.mpd"), os.O_WRONLY, os.ModePerm)
+			f, _ := os.OpenFile(filepath.Join(cachedDir, filename, "manifest.mpd"), os.O_WRONLY|os.O_TRUNC, os.ModePerm)
 			/* Write generated manifest */
 			f.WriteString(manifest)
 			f.Close()
