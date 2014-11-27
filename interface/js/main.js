@@ -202,7 +202,7 @@ var ElementArray = React.createClass({
     render: function() {
         var elements = this.state.data.map(function (elm) {
             return (
-                <Element name={elm.Name} type={elm.Proto} path={elm.Path} live={elm.isLive} state={elm.State} onUpdate={this.update} />
+                <Element name={elm.Name} type={elm.Proto} path={elm.Path} live={elm.IsLive} state={elm.State} onUpdate={this.update} />
             );
         }.bind(this));
         return (
@@ -265,20 +265,22 @@ var ElementGeneration = React.createClass({
     },
     render: function() {
         if (this.props.state == "generated") {
-            return (
-                <td className="generated">Generated</td>
-            );
+            if (this.props.live) {
+                return (
+                        <td>
+                            <input type="button" value="Stop" onClick={this.stop} />
+                        </td>
+                );
+            } else {
+                return (
+                        <td className="generated">Generated</td>
+                );
+            }
         } else if (this.props.state == "generation") {
             return (
                 <td className="generation">Generation...</td>
             );
-        } else if (this.props.live && this.props.state == "generated") {
-            return (
-                <td>
-                    <input type="button" value="Stop" onClick={this.stop} />
-                </td>
-            );
-        } else {
+        }  else {
             return (
                 <td>
                     <input type="button" value="Generate" onClick={this.generate} />

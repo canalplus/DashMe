@@ -104,6 +104,19 @@ func generationHandler(cache *CacheManager, serverChan chan error) RouteHandler 
 	}
 }
 
+/* DELETE /dash/<filename>/generate handler */
+func liveStopHandler(cache *CacheManager, serverChan chan error) RouteHandler {
+	return func (w http.ResponseWriter, r *http.Request, params map[string]string) {
+		err := cache.Stop(params["filename"])
+		if err != nil {
+			serverChan <- err
+			http.Error(w, "Invalid request !", http.StatusNotFound)
+		} else {
+			fmt.Fprintf(w, "")
+		}
+	}
+}
+
 /* GET /interface/* */
 func interfaceHandler(interfaceDir string, serverChan chan error) RouteHandler {
 	return func (w http.ResponseWriter, r *http.Request, params map[string]string) {
@@ -164,7 +177,7 @@ func main() {
 	server.addRoute("POST", "/files/upload", filesUploadHandler(&cache, serverChan, videoDir))
 	server.addRoute("GET", "/dash/:filename/:elm", elementRouteHandler(&cache, serverChan))
 	server.addRoute("POST", "/dash/:filename/generate", generationHandler(&cache, serverChan))
-	//server.addRoute("DELETE", "/dash/:filename/generate", stopLiveHandler(&cache, serverChan))
+	server.addRoute("DELETE", "/dash/:filename/generate", liveStopHandler(&cache, serverChan))
 	server.addRoute("GET", "/interface/*path", interfaceHandler(interfaceDir, serverChan))
 	/* Start file monitoring */
 	inotifyChan, err := StartInotify(&cache, videoDir)

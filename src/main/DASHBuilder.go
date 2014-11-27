@@ -28,19 +28,25 @@ type ManifestInfos struct {
 	maxHeight int
 }
 
-/* Structure used to store building specific information */
 type DASHBuilder struct {
-	videoDir  string
-	cachedDir string
-	tracks    []*parser.Track
+	tracks        []*parser.Track
 	manifestInfos *ManifestInfos
+	demuxer       *parser.Demuxer
+	stop          bool
 }
 
-/* Initialise a DASHBuilder structure */
-func (b *DASHBuilder) Initialise(videoDir string, cachedDir string) {
+/* Structure used to store building specific information */
+type DASHConverter struct {
+	videoDir  string
+	cachedDir string
+	builders  map[string]*DASHBuilder
+}
+
+/* Initialise a DASHConverter structure */
+func (b *DASHConverter) Initialise(videoDir string, cachedDir string) {
 	b.videoDir = videoDir
 	b.cachedDir = cachedDir
-	b.tracks = nil
+	b.builders = make(map[string]*DASHBuilder)
 	parser.InitialiseDemuxers()
 }
 
@@ -194,8 +200,8 @@ func (b *DASHBuilder) buildManifest(isLive bool) (string, error) {
 }
 
 /* Routine launched for live streams */
-func liveWorker(demuxer *parser.Demuxer, b *DASHBuilder, outPath string, filename string) {
-	for {
+func liveWorker(demuxer *parser.Demuxer, b *DASHBuilder, outPath string, filename string, cachedDir string) {
+	for !b.stop {
 		/* Extract and build chunk for each track */
 		(*demuxer).ExtractChunk(&b.tracks, true)
 		duration := b.buildChunks(outPath)
@@ -203,16 +209,16 @@ func liveWorker(demuxer *parser.Demuxer, b *DASHBuilder, outPath string, filenam
 		if duration > 0 && duration < math.MaxFloat64 {
 			for i := 0; i < len(b.tracks); i++ {
 				b.tracks[i].CleanForLive()
-				b.tracks[i].CleanDirectory(filepath.Join(b.cachedDir, filename))
+				b.tracks[i].CleanDirectory(filepath.Join(cachedDir, filename))
 			}
 			/* Build manifest */
 			manifest, _ := b.buildManifest(true)
 			/* Write it to file */
-			f, _ := os.OpenFile(filepath.Join(b.cachedDir, filename, "manifest.mpd"), os.O_WRONLY, os.ModePerm)
+			f, _ := os.OpenFile(filepath.Join(cachedDir, filename, "manifest.mpd"), os.O_WRONLY, os.ModePerm)
 			/* Write generated manifest */
 			f.WriteString(manifest)
 			f.Close()
-			/* Sleep until next chunk generation */
+			/* Sleep until next chunk */
 			time.Sleep(time.Duration(int64(duration * 1000000)) * time.Microsecond)
 		} else {
 			time.Sleep(500 * time.Millisecond)
@@ -253,49 +259,49 @@ func (b *DASHBuilder) buildChunks(outPath string) float64 {
 }
 
 /* Build a DASH version of a file (manifest and chunks) */
-func (b *DASHBuilder) Build(inPath string, filename string, isLive bool) error {
+func (c *DASHConverter) Build(inPath string, filename string, isLive bool) error {
 	var demuxer parser.Demuxer
+	var builder DASHBuilder
 	var err error
 	var manifest string
-	/* Clean up if necessary */
-	if len(b.tracks) > 0 {
-		b.tracks = nil
+	if _, exists := c.builders[filename]; exists {
+		return errors.New("File '" + filename + "' is already building !")
 	}
 	/* Get demuxer */
 	demuxer, err = parser.OpenDemuxer(inPath)
 	if err != nil { return err }
 	/* Recover track from demuxer */
-	err = demuxer.GetTracks(&b.tracks)
+	err = demuxer.GetTracks(&builder.tracks)
 	if err != nil { return err }
 	/* Defer demuxer close and track clean up if anything goes wrong */
 	if !isLive {
 		defer demuxer.Close()
-		defer b.cleanTracks()
+		defer builder.cleanTracks()
 	}
 	/* If we did not find any track, there is a problem */
-	if len(b.tracks) <= 0 {
+	if len(builder.tracks) <= 0 {
 		demuxer.Close()
 		return errors.New("No tracks found !")
 	}
-	outPath := filepath.Join(b.cachedDir, filename)
+	outPath := filepath.Join(c.cachedDir, filename)
 	/* Initialise build for each track and build init chunk */
-	for i := 0; i < len(b.tracks); i++ {
-		b.tracks[i].InitialiseBuild(outPath)
-		b.tracks[i].BuildInit(outPath)
+	for i := 0; i < len(builder.tracks); i++ {
+		builder.tracks[i].InitialiseBuild(outPath)
+		builder.tracks[i].BuildInit(outPath)
 	}
 	/* While we have sample build chunks for each tracks */
 	eof := false
 	for !eof {
-		eof = !demuxer.ExtractChunk(&b.tracks, false)
-		b.buildChunks(outPath)
+		eof = !demuxer.ExtractChunk(&builder.tracks, false)
+		builder.buildChunks(outPath)
 	}
 	/* If there is samples left in tracks */
-	b.buildChunks(outPath)
+	builder.buildChunks(outPath)
 	/* Build manifest */
-	manifest, err = b.buildManifest(isLive)
+	manifest, err = builder.buildManifest(isLive)
 	if err != nil { return err }
 	/* Write it to file */
-	f, err := os.OpenFile(filepath.Join(b.cachedDir, filename, "manifest.mpd"), os.O_WRONLY|os.O_CREATE, os.ModePerm)
+	f, err := os.OpenFile(filepath.Join(c.cachedDir, filename, "manifest.mpd"), os.O_WRONLY|os.O_CREATE, os.ModePerm)
 	if err != nil {
 		return err
 	}
@@ -303,9 +309,22 @@ func (b *DASHBuilder) Build(inPath string, filename string, isLive bool) error {
 	_, err = f.WriteString(manifest)
 	f.Close()
 	if err == nil && isLive {
-		go liveWorker(&demuxer, b, outPath, filename)
+		go liveWorker(&demuxer, &builder, outPath, filename, c.cachedDir)
+		builder.demuxer = &demuxer
+		c.builders[filename] = &builder
 	}
 	/* Force GC pass and memory release */
 	debug.FreeOSMemory()
 	return err
+}
+
+/* Stop a live generation thread */
+func (c *DASHConverter) Stop(filename string) error {
+	builder, exists := c.builders[filename]
+	if !exists {
+		return errors.New("File '" + filename + "' is not building !")
+	}
+	builder.stop = true
+	delete(c.builders, filename)
+	return nil
 }

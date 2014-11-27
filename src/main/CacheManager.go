@@ -38,7 +38,7 @@ type CacheManager struct {
 	cachedDir  string
 	availables []Available
 	cached     []string
-	converter  DASHBuilder
+	converter  DASHConverter
 	converting map[string]bool
 }
 
@@ -162,6 +162,27 @@ func (c *CacheManager) Build(filename string) error {
 	return c.buildIfNeeded(filename)
 }
 
+/* Stop a demuxer for a live stream */
+func (c *CacheManager) Stop(filename string) error {
+	err := c.converter.Stop(filename)
+	/* Remove directory */
+	os.RemoveAll(filepath.Join(c.cachedDir, filename))
+	/* Update available */
+	for i := 0; i < len(c.cached); i++ {
+		if c.cached[i] == filename {
+			c.cached = append(c.cached[:i], c.cached[i + 1:]...)
+			break
+		}
+	}
+	for i := 0; i < len(c.availables); i++ {
+		if c.availables[i].Name == filename {
+			c.availables[i].Generated = false
+			break
+		}
+	}
+	return err
+}
+
 /* Return element for a file */
 func (c *CacheManager) GetElement(filename string, element string) (string, error) {
 	return filepath.Join(c.cachedDir, filename, element), nil
@@ -202,6 +223,7 @@ func (c *CacheManager) RemoveFile(path string) error {
 	for i := 0; i < len(c.availables); i++ {
 		if c.availables[i].Name == filename {
 			c.availables = append(c.availables[:i], c.availables[i + 1:]...)
+			break
 		}
 	}
 	return nil
