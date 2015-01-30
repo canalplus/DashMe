@@ -204,7 +204,7 @@ func (d *FFMPEGDemuxer) GetTracks(tracks *[]*Track) error {
 			track.width = int(stream.codec.width)
 			track.height = int(stream.codec.height)
 			track.bitsPerSample = int(stream.codec.bits_per_coded_sample)
-			track.colorTableId = int(stream.codec.color_table_id)
+			// track.colorTableId = int(stream.codec.color_table_id)
 			track.isAudio = false
 		} else if stream.codec.codec_type == C.AVMEDIA_TYPE_AUDIO {
 			/* Test if audio is AAC */
