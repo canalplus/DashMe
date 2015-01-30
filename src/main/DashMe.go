@@ -21,9 +21,16 @@ const (
 /* GET /files handler */
 func filesRouteHandler(cache *CacheManager, serverChan chan error) RouteHandler {
 	return func (w http.ResponseWriter, r *http.Request, params map[string]string) {
+		var err error;
+		str := "[]";
 		w.Header().Set("Content-Type", "application/json")
-		res, err := json.Marshal(cache.GetAvailables())
-		fmt.Fprintf(w, string(res))
+		availables := cache.GetAvailables()
+		if availables != nil {
+			if res, err := json.Marshal(availables); err == nil {
+				str = string(res)
+			}
+		}
+		fmt.Fprintf(w, str)
 		if err != nil {
 			serverChan <- err
 		}
