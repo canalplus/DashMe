@@ -214,9 +214,11 @@ func parseSMOOTHSENC(reader io.ReadSeeker, track *Track) {
 
 /* Parse a smooth UUID atom : skip if unknown, otherwise call real parsing function */
 func (d *SmoothDemuxer) parseSmoothUUID(reader io.ReadSeeker, size int, track *Track) {
-	high, _ := utils.AtomReadInt64(reader)
-	low, _ := utils.AtomReadInt64(reader)
-	if uint(high) == 0xa2394f525a9b4f14 && uint(low) == 0xa2446c427c648df4 {
+	highhigh, _ := utils.AtomReadInt32(reader)
+	highlow, _ := utils.AtomReadInt32(reader)
+	lowhigh, _ := utils.AtomReadInt32(reader)
+	lowlow, _ := utils.AtomReadInt32(reader)
+	if uint(highhigh) == 0xa2394f52 && uint(highlow) == 0x5a9b4f14 && uint(lowhigh) == 0xa2446c42 && uint(lowlow) == 0x7c648df4 {
 		parseSMOOTHSENC(reader, track)
 	} else {
 		reader.Seek(int64(size - 24), 1)
