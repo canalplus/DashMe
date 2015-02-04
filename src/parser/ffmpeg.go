@@ -1,14 +1,39 @@
 package parser
 
 /*
-#cgo LDFLAGS: -lavformat -lavutil -lavcodec
+#cgo LDFLAGS: -lavformat -lavutil -lavcodec -ljpeg
 #include <libavformat/avformat.h>
 #include <libavutil/opt.h>
 #include <libavcodec/avcodec.h>
 #include <string.h>
 #include <stdlib.h>
+#include <jpeglib.h>
 
 #define TIMEBASE_Q (AVRational){1, 90000}
+
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(55,28,1)
+# include <libavutil/frame.h>
+AVFrame *alloc_frame(void)
+{
+  return av_frame_alloc();
+}
+
+void free_frame(AVFrame *f)
+{
+  av_frame_unref(f);
+  av_frame_free(&f);
+}
+#else
+AVFrame *alloc_frame(void)
+{
+  return avcodec_alloc_frame();
+}
+
+void free_frame(AVFrame *f)
+{
+  avcodec_free_frame(&f);
+}
+#endif
 
 AVStream* get_stream(AVStream **streams, int pos)
 {
@@ -40,12 +65,33 @@ char *convert_byte_slice(void *buffer, int size)
   memcpy(res, (char *)buffer, size);
   return res;
 }
+
+void set_pkt_data(void *data, AVPacket *pkt)
+{
+  pkt->data = (uint8_t*)data;
+}
+
+void set_extradata(void *data, size_t size, AVCodecContext *ctx)
+{
+  ctx->extradata = (uint8_t*)data;
+  ctx->extradata_size = size;
+}
+
 */
 import "C"
 import "fmt"
 import "errors"
 import "unsafe"
 import "runtime"
+import "image"
+import "image/jpeg"
+import "bytes"
+import "utils"
+
+const (
+	THUMBNAIL_WIDTH = 320
+	THUMBNAIL_HEIGHT = 180
+)
 
 /* Structure used to reference FFMPEG C AVFormatContext structure */
 type FFMPEGDemuxer struct {
@@ -62,6 +108,72 @@ type Sample struct {
 	data	 unsafe.Pointer
 	size     C.int
 	encrypt  *SampleEncryption
+}
+
+/* Create a JPEG image from using samples from a chunk (only for clear streams) */
+func FFMPEGGetImageFromSamples(samples []*Sample, extradata []byte) ([]byte, error) {
+	var gotPicture C.int
+	var pkt C.AVPacket
+	gotPicture = 0
+	pos := 0
+	/* Retrieve FFMPEG H264 codec */
+	codec := C.avcodec_find_decoder(C.AV_CODEC_ID_H264)
+	if codec == nil {
+		return nil, errors.New("Codec not found !")
+	}
+	/* Allocate context for codec */
+	ctx := C.avcodec_alloc_context3(codec)
+	if ctx == nil {
+		return nil, errors.New("Could not allocate codec context !")
+	}
+	defer C.av_free(unsafe.Pointer(ctx))
+	/* Set track extradata for decryption */
+	C.set_extradata(unsafe.Pointer(&extradata[0]), C.size_t(len(extradata)), ctx);
+	/* Open codec */
+	if C.avcodec_open2(ctx, codec, nil) < 0 {
+		return nil, errors.New("Could not open codec !")
+	}
+	defer C.avcodec_close(ctx)
+	/* Allocate ffmpeg frame structure */
+	frame := C.alloc_frame()
+	if frame == nil {
+		return nil, errors.New("Could not allocate frame !")
+	}
+	defer C.free_frame(frame)
+	if codec.capabilities & C.CODEC_CAP_TRUNCATED > 0 {
+		ctx.flags |= C.CODEC_FLAG_TRUNCATED;
+	}
+	/* Decode until we have a complete frame */
+	for gotPicture == 0 && pos < len(samples) {
+		C.av_init_packet(&pkt)
+		C.set_pkt_data(samples[pos].data, &pkt)
+		pkt.size = samples[pos].size
+		if samples[pos].keyFrame {
+			pkt.flags |= C.AV_PKT_FLAG_KEY
+		}
+		C.avcodec_decode_video2(ctx, frame, &gotPicture, &pkt);
+		pos++
+	}
+	/* No frame decoded for the chunk */
+	if gotPicture == 0 {
+		return nil, errors.New("Unable to decode picture !")
+	}
+	/* Create go YCbCr image */
+	img := image.NewYCbCr(image.Rect(0, 0, int(frame.width), int(frame.height)), image.YCbCrSubsampleRatio420)
+	img.Y = []uint8(C.GoBytes(unsafe.Pointer(frame.data[0]), frame.linesize[0] * frame.height))
+	img.Cb = []uint8(C.GoBytes(unsafe.Pointer(frame.data[1]), frame.linesize[1] * (frame.height / 2)))
+	img.Cr = []uint8(C.GoBytes(unsafe.Pointer(frame.data[2]), frame.linesize[2] * (frame.height / 2)))
+	img.YStride = int(frame.linesize[0])
+	img.CStride = int(frame.linesize[1])
+	b := new(bytes.Buffer)
+	/* Resize image if necessary */
+	if (frame.width > THUMBNAIL_WIDTH || frame.height > THUMBNAIL_HEIGHT) {
+		jpeg.Encode(b, utils.Resize(img, img.Rect, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT), nil)
+	} else {
+		jpeg.Encode(b, img, nil)
+	}
+	/* Convert YCbCr image to JPEG */
+	return b.Bytes(), nil
 }
 
 /* Called when starting the program, initialise FFMPEG demuxers */
@@ -166,7 +278,7 @@ func (d *FFMPEGDemuxer) ExtractChunk(tracks *[]*Track, isLive bool) bool {
 	/* Append last extracted chunk */
 	d.AppendSample(findTrack(*tracks, int(d.pkt.stream_index)), C.get_stream(d.context.streams, C.int(d.pkt.stream_index)))
 	C.av_free_packet(&d.pkt)
-	/* Read frames until reference track sample uis a key frame */
+	/* Read frames until reference track sample is a key frame */
 	res := C.av_read_frame(d.context, &d.pkt)
 	for ; res >= 0; res = C.av_read_frame(d.context, &d.pkt) {
 		/* Retrieve track corresponding to packet, if we have one*/
