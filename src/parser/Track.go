@@ -279,7 +279,7 @@ func (t *Track) BuildImageChunk(path string) error {
 	}
 	defer img.Close()
 	_, err = img.Write(append([]byte{
-		byte(((len(data) + 20) & 0xFF000000) >> 24),
+		byte((uint(len(data) + 20) & 0xFF000000) >> 24),
 		byte(((len(data) + 20) & 0x00FF0000) >> 16),
 		byte(((len(data) + 20) & 0x0000FF00) >> 8),
 		byte(((len(data) + 20) & 0x000000FF)),

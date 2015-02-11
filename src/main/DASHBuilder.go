@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"path/filepath"
-	"runtime/debug"
+	//"runtime/debug"
 )
 
 /* Structure to hold manifest info to avoid recomputing */
@@ -267,7 +267,8 @@ func (b *DASHBuilder) buildChunks(outPath string, selected int) float64 {
            Release memory to OS. It calls GC again but because there is a finalizer for
 	   samples, their GO part has not be freed by GC.
         */
-	debug.FreeOSMemory()
+	runtime.GC()
+	//debug.FreeOSMemory()
 	return duration
 }
 
@@ -350,7 +351,8 @@ func (c *DASHConverter) Build(inPath string, filename string, isLive bool) error
 		c.builders[filename] = &builder
 	}
 	/* Force GC pass and memory release */
-	debug.FreeOSMemory()
+	runtime.GC()
+	//debug.FreeOSMemory()
 	return err
 }
 

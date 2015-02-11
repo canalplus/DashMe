@@ -178,8 +178,8 @@ func FFMPEGGetImageFromSamples(samples []*Sample, extradata []byte) ([]byte, err
 
 /* Called when starting the program, initialise FFMPEG demuxers */
 func FFMPEGInitialise() error {
-	_, err := C.av_register_all()
-	return err
+	C.av_register_all()
+	return nil
 }
 
 func CInt(val int) C.int {
