@@ -200,7 +200,7 @@ func (b *DASHBuilder) buildManifest(isLive bool, thumbnailWidth int, thumbnailHe
       mimeType="image/jpeg"
       segmentAlignment="true">
       <Representation width="` + strconv.Itoa(thumbnailWidth) + `" height="` + strconv.Itoa(thumbnailHeight) + `" codecs="jpeg">
-        <SegmentTemplate media="thumbnails.bsi"/>
+        <SegmentTemplate media="thumbnails.bsi" duration="` + strconv.FormatFloat(b.manifestInfos.duration, 'f', -1, 64) + `" />
       </Representation>
     </AdaptationSet>`
 	manifest += `
