@@ -124,7 +124,7 @@ func liveStopHandler(cache *CacheManager, serverChan chan error) RouteHandler {
 	}
 }
 
-/* GET /interface/* */
+/* GET /* */
 func interfaceHandler(interfaceDir string, serverChan chan error) RouteHandler {
 	return func (w http.ResponseWriter, r *http.Request, params map[string]string) {
 		path := params["path"]
@@ -184,7 +184,7 @@ func main() {
 	server.addRoute("GET", "/dash/:filename/:elm", elementRouteHandler(&cache, serverChan))
 	server.addRoute("POST", "/dash/:filename/generate", generationHandler(&cache, serverChan))
 	server.addRoute("DELETE", "/dash/:filename/generate", liveStopHandler(&cache, serverChan))
-	server.addRoute("GET", "/interface/*path", interfaceHandler(interfaceDir, serverChan))
+	server.addRoute("GET", "/*path", interfaceHandler(interfaceDir, serverChan))
 	/* Start file monitoring */
 	inotifyChan, err := StartInotify(&cache, videoDir)
 	if err != nil {
