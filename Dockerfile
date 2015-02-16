@@ -15,8 +15,8 @@ RUN apt-get install --quiet --yes libavformat-dev
 RUN apt-get install --quiet --yes libjpeg-dev
 
 ADD src /srv/src
-ADD .obj /srv/.obj
 ADD configure Makefile Makefile.inc /srv/
+RUN mkdir -p .obj
 RUN ./configure && make
 
 ADD videos /var/videos
