@@ -2,3 +2,4 @@
 /DashMe
 /*.o
 /*.gox
+.obj/*
