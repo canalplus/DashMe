@@ -36,6 +36,18 @@ type DASHXMLSegmentTemplate struct {
 	Segments []DASHXMLSegment `xml:"SegmentTimeline>S"`
 }
 
+type DASHXMLSegmentBase struct {
+	XMLName xml.Name `xml:"SegmentBase"`
+	Timescale int `xml:"timescale,attr"`
+	Range string `xml:"indexRange,attr"`
+	Initialization []DASHXMLInitialization `xml:"Initialization"`
+}
+
+type DASHXMLInitialization struct {
+	XMLName xml.Name `xml:"Initialization"`
+	Range string `xml:"range,attr"`
+}
+
 type DASHXMLRepresentation struct {
 	XMLName xml.Name `xml:"Representation"`
 	Id string `xml:"id,attr"`
@@ -44,6 +56,9 @@ type DASHXMLRepresentation struct {
 	AudioSamplingRate string `xml:"audioSamplingRate,attr"`
 	Width int `xml:"width,attr"`
 	Height int `xml:"height,attr"`
+	Sar int `xml:"sar,attr"`
+	Base DASHXMLSegmentBase
+	BaseURL string `xml:"BaseURL">`
 }
 
 type DASHXMLAdaptionSet struct {
@@ -555,6 +570,22 @@ func (d *DASHDemuxer) getChunksURL(adaptationSet DASHXMLAdaptionSet, representat
 	return &res
 }
 
+
+
+/* Parse a SegmentTemplate track to return init segment url */
+func (d *DASHDemuxer) parseSegmentTemplate(adaptationSet DASHXMLAdaptionSet, representation DASHXMLRepresentation) string {
+	name := adaptationSet.Template.Initialization
+	name = strings.Replace(name, "$RepresentationID$", representation.Id, 1)
+	name = strings.Replace(name, "$Bandwidth$", 			 representation.Bandwidth, 1)
+
+	return d.baseURL + name
+}
+
+/* Parse a SegmentBase track to return init segment url */
+func (d *DASHDemuxer) parseSegmentBase(adaptationSet DASHXMLAdaptionSet, representation DASHXMLRepresentation) string {
+	return d.baseURL + representation.BaseURL
+}
+
 /* Parse a DASH manifest and extract all tracks declared in it */
 func (d *DASHDemuxer) parseDASHManifest(manifest *DASHManifest, tracks *[]*Track) error {
 	var track *Track
@@ -570,23 +601,36 @@ func (d *DASHDemuxer) parseDASHManifest(manifest *DASHManifest, tracks *[]*Track
 			track = new(Track)
 			track.index = acc
 			track.SetTimeFields()
-			/* Build init chunk URL */
-			name := manifest.Period.AdaptationSets[i].Template.Initialization
-			name = strings.Replace(name, "$RepresentationID$", manifest.Period.AdaptationSets[i].Representations[j].Id, 1)
-			name = strings.Replace(name, "$Bandwidth$", manifest.Period.AdaptationSets[i].Representations[j].Bandwidth, 1)
-			/* Parse init chunk and extract info */
-			err := d.parseDASHFile(d.baseURL + "/" + name, track)
+
+			var initSegmentURL string
+
+			adaptationSet := manifest.Period.AdaptationSets[i]
+			representation := adaptationSet.Representations[j]
+
+			if adaptationSet.Template.XMLName.Local != "" {
+				track.segmentType = "template"
+				initSegmentURL = d.parseSegmentTemplate(adaptationSet, representation)
+			}
+
+			if representation.Base.XMLName.Local != "" {
+				track.segmentType = "base"
+				initSegmentURL = d.parseSegmentBase(adaptationSet, representation)
+			}
+
+			err := d.parseDASHFile(initSegmentURL, track)
 			if err != nil {
 				return err
 			}
+
 			track.duration = int(duration * float64(track.globalTimescale))
-			track.bandwidth, _ = strconv.Atoi(manifest.Period.AdaptationSets[i].Representations[j].Bandwidth)
+			track.bandwidth, _ = strconv.Atoi(representation.Bandwidth)
 			if track.timescale == 0 {
 				track.timescale = track.globalTimescale
 			}
+
 			acc++
 			*tracks = append(*tracks, track)
-			d.chunksURL[track.index] = d.getChunksURL(manifest.Period.AdaptationSets[i], manifest.Period.AdaptationSets[i].Representations[j])
+			d.chunksURL[track.index] = d.getChunksURL(adaptationSet, representation)
 		}
 	}
 	return nil
