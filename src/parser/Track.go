@@ -69,6 +69,7 @@ type Track struct {
 	builder          Builder
 	chunksDepth      int
 	startTime        int64
+	segmentType      string
 }
 
 /* Print track on stdout */
@@ -102,6 +103,7 @@ func (t *Track) Print() {
 	fmt.Println("\tcodec: ", t.codec)
 	fmt.Println("\tencrypted : ", (t.encryptInfos != nil))
 	fmt.Println("\tsamples count : ", len(t.samples))
+	fmt.Println("\tsegment type : ", t.segmentType)
 }
 
 /* Builder structure methods */
