@@ -35,7 +35,6 @@ func TestSegemenBaseGetTracks(t *testing.T) {
   if err != nil {
     t.Errorf("got error in GetTracks %q", err)
   }
-
 }
 
 func TestSegemenTemplateGetTracks(t *testing.T) {
