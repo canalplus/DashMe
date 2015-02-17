@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"fmt"
 	"io"
 	"sync"
 	"utils"
@@ -19,6 +20,11 @@ import (
 var (
 	DurationRegexp = regexp.MustCompile(`P((?P<year>[\d\.]+)Y)?((?P<month>[\d\.]+)M)?((?P<day>[\d\.]+)D)?(T((?P<hour>[\d\.]+)H)?((?P<minute>[\d\.]+)M)?((?P<second>[\d\.]+)S)?)?`)
 )
+
+type HTTPRequest struct {
+	Url string
+	Headers []struct { name, value string }
+}
 
 type DASHXMLSegment struct {
 	XMLName xml.Name `xml:"S"`
@@ -478,13 +484,27 @@ func (d *DASHDemuxer) parseDASHTFDT(reader io.ReadSeeker, size int, track *Track
 }
 
 /* Parse a DASH chunk, either an init or data */
-func (d *DASHDemuxer) parseDASHFile(url string, track *Track) error {
+func (d *DASHDemuxer) parseDASHFile(request HTTPRequest, track *Track) error {
+	client := new(http.Client)
+
+	fmt.Printf("Url: %q, Headers %q \n", request.Url, request.Headers)
+
 	var size int
 	/* Retrieve chunk data */
-	resp, err := http.Get(url)
+	req, err := http.NewRequest("GET", request.Url, nil)
 	if err != nil {
 		return err
 	}
+	if request.Headers != nil {
+		for _, h := range request.Headers {
+			req.Header.Add(h.name, h.value)
+		}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+
 	defer resp.Body.Close()
 	buffer, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
@@ -573,17 +593,19 @@ func (d *DASHDemuxer) getChunksURL(adaptationSet DASHXMLAdaptionSet, representat
 
 
 /* Parse a SegmentTemplate track to return init segment url */
-func (d *DASHDemuxer) parseSegmentTemplate(adaptationSet DASHXMLAdaptionSet, representation DASHXMLRepresentation) string {
+func (d *DASHDemuxer) parseSegmentTemplate(adaptationSet DASHXMLAdaptionSet, representation DASHXMLRepresentation) HTTPRequest {
 	name := adaptationSet.Template.Initialization
 	name = strings.Replace(name, "$RepresentationID$", representation.Id, 1)
 	name = strings.Replace(name, "$Bandwidth$", 			 representation.Bandwidth, 1)
 
-	return d.baseURL + name
+	request := HTTPRequest{Url: d.baseURL + name}
+	return request
 }
 
 /* Parse a SegmentBase track to return init segment url */
-func (d *DASHDemuxer) parseSegmentBase(adaptationSet DASHXMLAdaptionSet, representation DASHXMLRepresentation) string {
-	return d.baseURL + representation.BaseURL
+func (d *DASHDemuxer) parseSegmentBase(adaptationSet DASHXMLAdaptionSet, representation DASHXMLRepresentation) HTTPRequest {
+	request := HTTPRequest{Url: d.baseURL + representation.BaseURL}
+	return request
 }
 
 /* Parse a DASH manifest and extract all tracks declared in it */
@@ -602,23 +624,24 @@ func (d *DASHDemuxer) parseDASHManifest(manifest *DASHManifest, tracks *[]*Track
 			track.index = acc
 			track.SetTimeFields()
 
-			var initSegmentURL string
+			var initSegmentRequest HTTPRequest
 
 			adaptationSet := manifest.Period.AdaptationSets[i]
 			representation := adaptationSet.Representations[j]
 
 			if adaptationSet.Template.XMLName.Local != "" {
 				track.segmentType = "template"
-				initSegmentURL = d.parseSegmentTemplate(adaptationSet, representation)
+				initSegmentRequest = d.parseSegmentTemplate(adaptationSet, representation)
 			}
 
 			if representation.Base.XMLName.Local != "" {
 				track.segmentType = "base"
-				initSegmentURL = d.parseSegmentBase(adaptationSet, representation)
+				initSegmentRequest = d.parseSegmentBase(adaptationSet, representation)
 			}
 
-			err := d.parseDASHFile(initSegmentURL, track)
+			err := d.parseDASHFile(initSegmentRequest, track)
 			if err != nil {
+				fmt.Printf("error: %s \n", err)
 				return err
 			}
 
@@ -691,9 +714,10 @@ func (d *DASHDemuxer) ExtractChunk(tracks *[]*Track, isLive bool) bool {
 		if track != nil {
 			/* Retrieve URL to chunk and parallelised download and parsing */
 			url := d.chunksURL[k].Pop().(string)
+			request := HTTPRequest{Url: url}
 			c := make(chan error)
 			go func(c chan error, track *Track) {
-				c <- d.parseDASHFile(url, track)
+				c <- d.parseDASHFile(request, track)
 			}(c, track)
 			waitList = append(waitList, c)
 		}
