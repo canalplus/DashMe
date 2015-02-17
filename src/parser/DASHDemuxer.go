@@ -598,13 +598,21 @@ func (d *DASHDemuxer) parseSegmentTemplate(adaptationSet DASHXMLAdaptionSet, rep
 	name = strings.Replace(name, "$RepresentationID$", representation.Id, 1)
 	name = strings.Replace(name, "$Bandwidth$", 			 representation.Bandwidth, 1)
 
-	request := HTTPRequest{Url: d.baseURL + name}
+	request := HTTPRequest{Url: d.baseURL + "/" + name}
 	return request
 }
 
 /* Parse a SegmentBase track to return init segment url */
 func (d *DASHDemuxer) parseSegmentBase(adaptationSet DASHXMLAdaptionSet, representation DASHXMLRepresentation) HTTPRequest {
-	request := HTTPRequest{Url: d.baseURL + representation.BaseURL}
+	headers  := []struct {
+		name, value string
+	}{
+		{"Range", "bytes=" + representation.Base.Initialization[0].Range},
+	}
+	request := HTTPRequest{
+		Url: d.baseURL + "/" + representation.BaseURL,
+		Headers: headers,
+	}
 	return request
 }
 
