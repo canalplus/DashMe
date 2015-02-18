@@ -58,6 +58,7 @@ type Track struct {
 	bitsPerSample    int
 	colorTableId     int
 	bandwidth        int
+	initOffset			 int
 	codec            string
 	currentDuration  int64
 	extradata        []byte
@@ -65,11 +66,20 @@ type Track struct {
 	chunksDuration   []int64
 	chunksSize       []int
 	chunksName       []string
+	chunksRanges		 []*Range
 	encryptInfos     *EncryptionInfo
 	builder          Builder
 	chunksDepth      int
 	startTime        int64
 	segmentType      string
+}
+
+/* Structure representing range in a segment base DASH */
+type Range struct {
+	ts 				int
+	duration  int
+	ranges 		string
+	r         int
 }
 
 /* Print track on stdout */
@@ -104,6 +114,7 @@ func (t *Track) Print() {
 	fmt.Println("\tencrypted : ", (t.encryptInfos != nil))
 	fmt.Println("\tsamples count : ", len(t.samples))
 	fmt.Println("\tsegment type : ", t.segmentType)
+	fmt.Println("\tinit offset : ", t.initOffset)
 }
 
 /* Builder structure methods */
