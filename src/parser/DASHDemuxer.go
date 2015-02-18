@@ -126,6 +126,7 @@ func (d *DASHDemuxer) Open(path string) error {
 	d.atomParsers["enca"] = (*DASHDemuxer).parseDASHENCA
 	d.atomParsers["tenc"] = (*DASHDemuxer).parseDASHTENC
 	d.atomParsers["senc"] = (*DASHDemuxer).parseDASHSENC
+	d.atomParsers["sidx"] = (*DASHDemuxer).parseDASHSIDX
 	return nil
 }
 
@@ -412,6 +413,52 @@ func (d *DASHDemuxer) parseDASHSENC(reader io.ReadSeeker, size int, track *Track
 				track.samples[i].encrypt.subEncrypt = append(track.samples[i].encrypt.subEncrypt, SubSampleEncryption{clear, encrypted})
 			}
 		}
+	}
+}
+
+/* Extract sidx info segment base */
+func (d *DASHDemuxer) parseDASHSIDX(reader io.ReadSeeker, size int, track *Track) {
+	version, _ := utils.AtomReadInt8(reader);
+	reader.Seek(7, 1);
+
+	timescale, _ := utils.AtomReadInt32(reader);
+	track.timescale = timescale
+
+	var time, offset int
+
+	if version == 0 {
+		time, _ 	= utils.AtomReadInt32(reader)
+		offset, _ = utils.AtomReadInt32(reader)
+	}
+
+	offset += track.initOffset
+
+	reader.Seek(2, 1);
+	count, _ := utils.AtomReadInt16(reader)
+
+	track.chunksRanges = make([]*Range, count)
+
+	for count > 0 {
+		refInfos, _ := utils.AtomReadInt32(reader)
+		// refType  := (refInfos & 0x80000000) >> 31
+		refSize  := (refInfos & 0x7fffffff)
+
+		duration, _ := utils.AtomReadInt32(reader)
+		ranges := [2]int{offset, offset + refSize -1}
+
+		time 	 += duration
+		offset += refSize
+
+		chunkRange := new(Range)
+		chunkRange.ts = time
+		chunkRange.duration = duration
+		chunkRange.ranges = strconv.Itoa(ranges[0]) + "-" + strconv.Itoa(ranges[1])
+		chunkRange.r = 0
+
+		count -= 1
+		track.chunksRanges[count] = chunkRange
+
+		reader.Seek(4, 1)
 	}
 }
 
