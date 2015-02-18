@@ -608,8 +608,8 @@ func parseDASHDuration(duration string) float64 {
 	return res
 }
 
-/* Retrieve URL for all chunks passed as argument */
-func (d *DASHDemuxer) getChunksURL(adaptationSet DASHXMLAdaptionSet, representation DASHXMLRepresentation) *utils.Queue {
+/* Retrieve URL for all chunks passed as argument in a segment template representation */
+func (d *DASHDemuxer) getSegmentTemplateChunksURL(adaptationSet DASHXMLAdaptionSet, representation DASHXMLRepresentation) *utils.Queue {
 	res := utils.Queue{}
 	time := 0
 	number := adaptationSet.Template.StartNumber
@@ -635,7 +635,26 @@ func (d *DASHDemuxer) getChunksURL(adaptationSet DASHXMLAdaptionSet, representat
 	return &res
 }
 
+/* Retrieve Request for all chunks passed as argument in a segment template representation */
+func (d *DASHDemuxer) getSegmentBaseChunksURL(track *Track, representation DASHXMLRepresentation) *utils.Queue {
+	res := utils.Queue{}
+	count := len(track.chunksRanges) - 1
+	for count >= 0 {
+		headers  := []struct {
+			name, value string
+		}{
+			{"Range", "bytes=" + track.chunksRanges[count].ranges},
+		}
+		req := HTTPRequest{
+			Url: d.baseURL + "/" + representation.BaseURL,
+			Headers: headers,
+		}
+		res.Push(req)
 
+		count -= 1
+	}
+	return &res
+}
 
 /* Parse a SegmentTemplate track to return init segment url */
 func (d *DASHDemuxer) parseSegmentTemplate(adaptationSet DASHXMLAdaptionSet, representation DASHXMLRepresentation) HTTPRequest {
@@ -706,7 +725,15 @@ func (d *DASHDemuxer) parseDASHManifest(manifest *DASHManifest, tracks *[]*Track
 
 			acc++
 			*tracks = append(*tracks, track)
-			d.chunksURL[track.index] = d.getChunksURL(adaptationSet, representation)
+
+			if track.segmentType == "template" {
+				d.chunksURL[track.index] = d.getSegmentTemplateChunksURL(adaptationSet, representation)
+			} else if track.segmentType == "base" {
+				d.chunksURL[track.index] = d.getSegmentBaseChunksURL(track, representation)
+			} else {
+				res := utils.Queue{}
+				d.chunksURL[track.index] = &res
+			}
 		}
 	}
 	return nil
