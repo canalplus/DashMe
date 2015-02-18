@@ -626,7 +626,8 @@ func (d *DASHDemuxer) getSegmentTemplateChunksURL(adaptationSet DASHXMLAdaptionS
 			name = strings.Replace(name, "$Bandwidth$", representation.Bandwidth, 1)
 			name = strings.Replace(name, "$Time$", strconv.Itoa(time), 1)
 			name = strings.Replace(name, "$Number$", strconv.Itoa(number), 1)
-			res.Push(d.baseURL + "/" + name)
+			req := HTTPRequest{Url: d.baseURL + "/" + name}
+			res.Push(req)
 			/* Increment time from duration for next chunk */
 			time += adaptationSet.Template.Segments[i].Duration
 			number += 1
@@ -668,10 +669,13 @@ func (d *DASHDemuxer) parseSegmentTemplate(adaptationSet DASHXMLAdaptionSet, rep
 
 /* Parse a SegmentBase track to return init segment url */
 func (d *DASHDemuxer) parseSegmentBase(adaptationSet DASHXMLAdaptionSet, representation DASHXMLRepresentation) HTTPRequest {
+	initRange  := strings.Split(representation.Base.Initialization[0].Range, "-");
+	indexRange := strings.Split(representation.Base.Range, "-");
+
 	headers  := []struct {
 		name, value string
 	}{
-		{"Range", "bytes=" + representation.Base.Initialization[0].Range},
+		{"Range", "bytes=" + initRange[0] + "-" + indexRange[1]},
 	}
 	request := HTTPRequest{
 		Url: d.baseURL + "/" + representation.BaseURL,
@@ -704,11 +708,13 @@ func (d *DASHDemuxer) parseDASHManifest(manifest *DASHManifest, tracks *[]*Track
 			if adaptationSet.Template.XMLName.Local != "" {
 				track.segmentType = "template"
 				initSegmentRequest = d.parseSegmentTemplate(adaptationSet, representation)
-			}
-
-			if representation.Base.XMLName.Local != "" {
+			} else if representation.Base.XMLName.Local != "" {
 				track.segmentType = "base"
+				track.initOffset, _ = strconv.Atoi(strings.Split(representation.Base.Range, "-")[1]);
+				track.initOffset += 1
 				initSegmentRequest = d.parseSegmentBase(adaptationSet, representation)
+			} else {
+				continue
 			}
 
 			err := d.parseDASHFile(initSegmentRequest, track)
@@ -793,8 +799,7 @@ func (d *DASHDemuxer) ExtractChunk(tracks *[]*Track, isLive bool) bool {
 		}
 		if track != nil {
 			/* Retrieve URL to chunk and parallelised download and parsing */
-			url := d.chunksURL[k].Pop().(string)
-			request := HTTPRequest{Url: url}
+			request := d.chunksURL[k].Pop().(HTTPRequest)
 			c := make(chan error)
 			go func(c chan error, track *Track) {
 				c <- d.parseDASHFile(request, track)
