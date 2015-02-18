@@ -274,7 +274,12 @@ func (t *Track) BuildImageChunk(path string) error {
 		return err
 	}
 	pts := samples[0].pts * 1000 / int64(t.timescale)
-	duration := samples[0].duration * 1000 / int64(t.timescale)
+	duration := int64(0)
+	for i := 0; i < len(samples); i++ {
+		duration += samples[i].duration
+	}
+	duration *= 1000
+	duration /= int64(t.timescale)
 	img, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, os.ModePerm)
 	if err != nil {
 		return err
