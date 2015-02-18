@@ -534,8 +534,6 @@ func (d *DASHDemuxer) parseDASHTFDT(reader io.ReadSeeker, size int, track *Track
 func (d *DASHDemuxer) parseDASHFile(request HTTPRequest, track *Track) error {
 	client := new(http.Client)
 
-	fmt.Printf("Url: %q, Headers %q \n", request.Url, request.Headers)
-
 	var size int
 	/* Retrieve chunk data */
 	req, err := http.NewRequest("GET", request.Url, nil)
