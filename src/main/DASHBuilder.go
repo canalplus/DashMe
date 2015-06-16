@@ -26,8 +26,6 @@ type ManifestInfos struct {
 	maxWidth int
 	minHeight int
 	maxHeight int
-	imgWidth int
-	imgHeight int
 }
 
 type DASHBuilder struct {
@@ -113,7 +111,7 @@ func (b *DASHBuilder) computeManifestInfos() *ManifestInfos {
 }
 
 /* Build manifest as a string */
-func (b *DASHBuilder) buildManifest(isLive bool, thumbnailWidth int, thumbnailHeight int) (string, error) {
+func (b *DASHBuilder) buildManifest(isLive bool) (string, error) {
 	if b.manifestInfos == nil {
 		b.manifestInfos = b.computeManifestInfos()
 	}
@@ -194,14 +192,6 @@ func (b *DASHBuilder) buildManifest(isLive bool, thumbnailWidth int, thumbnailHe
 		}
 	}
 	manifest += `
-    </AdaptationSet>
-    <AdaptationSet
-      group="3"
-      mimeType="image/jpeg"
-      segmentAlignment="true">
-      <Representation width="` + strconv.Itoa(thumbnailWidth) + `" height="` + strconv.Itoa(thumbnailHeight) + `" codecs="jpeg">
-        <SegmentTemplate media="thumbnails.bsi" duration="` + strconv.FormatFloat(b.manifestInfos.duration, 'f', -1, 64) + `" />
-      </Representation>
     </AdaptationSet>`
 	manifest += `
   </Period>
@@ -210,11 +200,11 @@ func (b *DASHBuilder) buildManifest(isLive bool, thumbnailWidth int, thumbnailHe
 }
 
 /* Routine launched for live streams */
-func liveWorker(demuxer *parser.Demuxer, b *DASHBuilder, outPath string, filename string, cachedDir string, thumbnailWidth int, thumbnailHeight int, selected int) {
+func liveWorker(demuxer *parser.Demuxer, b *DASHBuilder, outPath string, filename string, cachedDir string) {
 	for !b.stop {
 		/* Extract and build chunk for each track */
 		(*demuxer).ExtractChunk(&b.tracks, true)
-		duration := b.buildChunks(outPath, selected)
+		duration := b.buildChunks(outPath)
 		/* If we succeeded, update manifest */
 		if duration > 0 && duration < math.MaxFloat64 {
 			for i := 0; i < len(b.tracks); i++ {
@@ -222,7 +212,7 @@ func liveWorker(demuxer *parser.Demuxer, b *DASHBuilder, outPath string, filenam
 				b.tracks[i].CleanDirectory(filepath.Join(cachedDir, filename))
 			}
 			/* Build manifest */
-			manifest, _ := b.buildManifest(true, thumbnailWidth, thumbnailHeight)
+			manifest, _ := b.buildManifest(true)
 			/* Write it to file */
 			f, _ := os.OpenFile(filepath.Join(cachedDir, filename, "manifest.mpd"), os.O_WRONLY|os.O_TRUNC, os.ModePerm)
 			/* Write generated manifest */
@@ -248,14 +238,11 @@ func (b *DASHBuilder) cleanTracks() {
 }
 
 /* Build one chunk for each track in the builder */
-func (b *DASHBuilder) buildChunks(outPath string, selected int) float64 {
+func (b *DASHBuilder) buildChunks(outPath string) float64 {
 	duration := math.MaxFloat64
 	/* Call each track generation function */
 	for i := 0; i < len(b.tracks); i++ {
 		tmp, _ := b.tracks[i].BuildChunk(outPath)
-		if selected == i && !b.tracks[i].IsEncrypted() {
-			b.tracks[i].BuildImageChunk(filepath.Join(outPath, "thumbnails.bsi"))
-		}
 		if duration > tmp {
 			duration = tmp
 		}
@@ -270,7 +257,6 @@ func (b *DASHBuilder) buildChunks(outPath string, selected int) float64 {
 	debug.FreeOSMemory()
 	return duration
 }
-
 
 /* Build a DASH version of a file (manifest and chunks) */
 func (c *DASHConverter) Build(inPath string, filename string, isLive bool) error {
@@ -299,42 +285,20 @@ func (c *DASHConverter) Build(inPath string, filename string, isLive bool) error
 	}
 	outPath := filepath.Join(c.cachedDir, filename)
 	/* Initialise build for each track and build init chunk */
-	/* Also select track for thumbnails */
-	selected := 0
-	currentWidth := 0
-	currentHeight := 0
 	for i := 0; i < len(builder.tracks); i++ {
 		builder.tracks[i].InitialiseBuild(outPath)
 		builder.tracks[i].BuildInit(outPath)
-		if builder.tracks[i].IsAudio() {
-			continue
-		}
-		if (currentWidth == 0 && currentHeight == 0) ||
-		   (builder.tracks[i].Width() < currentWidth && builder.tracks[i].Width() >=  parser.THUMBNAIL_WIDTH) ||
-		   (builder.tracks[i].Height() < currentHeight && builder.tracks[i].Height() >=  parser.THUMBNAIL_HEIGHT) ||
-		   (builder.tracks[i].Width() > currentWidth && currentWidth < parser.THUMBNAIL_WIDTH) ||
-		   (builder.tracks[i].Height() > currentHeight && currentHeight < parser.THUMBNAIL_HEIGHT) {
-			selected = i
-			currentWidth = builder.tracks[i].Width()
-			currentHeight = builder.tracks[i].Height()
-		}
-	}
-	if currentWidth > parser.THUMBNAIL_WIDTH {
-		currentWidth =  parser.THUMBNAIL_WIDTH
-	}
-	if currentHeight > parser.THUMBNAIL_HEIGHT {
-		currentHeight =  parser.THUMBNAIL_HEIGHT
 	}
 	/* While we have sample build chunks for each tracks */
 	eof := false
 	for !eof {
 		eof = !demuxer.ExtractChunk(&builder.tracks, false)
-		builder.buildChunks(outPath, selected)
+		builder.buildChunks(outPath)
 	}
 	/* If there is samples left in tracks */
-	builder.buildChunks(outPath, selected)
+	builder.buildChunks(outPath)
 	/* Build manifest */
-	manifest, err = builder.buildManifest(isLive, currentWidth, currentHeight)
+	manifest, err = builder.buildManifest(isLive)
 	if err != nil { return err }
 	/* Write it to file */
 	f, err := os.OpenFile(filepath.Join(c.cachedDir, filename, "manifest.mpd"), os.O_WRONLY|os.O_CREATE, os.ModePerm)
@@ -345,7 +309,7 @@ func (c *DASHConverter) Build(inPath string, filename string, isLive bool) error
 	_, err = f.WriteString(manifest)
 	f.Close()
 	if err == nil && isLive {
-		go liveWorker(&demuxer, &builder, outPath, filename, c.cachedDir, currentWidth, currentHeight, selected)
+		go liveWorker(&demuxer, &builder, outPath, filename, c.cachedDir)
 		builder.demuxer = &demuxer
 		c.builders[filename] = &builder
 	}
