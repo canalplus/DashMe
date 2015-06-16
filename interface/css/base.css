@@ -211,7 +211,3 @@ input[type="text"].error {
 .invisible {
     display : none;
 }
-
-.gallery-modal div input[type="button"] {
-    margin-top : 60px;
-}

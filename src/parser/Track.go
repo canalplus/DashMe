@@ -269,53 +269,9 @@ func (t *Track) buildSampleChunk(samples []*Sample, path string) (int64, error) 
 	defer f.Close()
 	/* Write generated atoms */
 	_, err = f.Write(b)
-	if !t.isAudio {
-
-	}
 	t.chunksSize = append(t.chunksSize, len(b))
 	t.chunksName = append(t.chunksName, filepath.Base(path))
 	return t.computeChunkDuration(), err
-}
-
-func (t *Track) BuildImageChunk(path string) error {
-	samples := t.samples
-	/* Generate Image */
-	data, err := FFMPEGGetImageFromSamples(samples, t.extradata)
-	if err != nil {
-		return err
-	}
-	pts := samples[0].pts * 1000 / int64(t.timescale)
-	duration := int64(0)
-	for i := 0; i < len(samples); i++ {
-		duration += samples[i].duration
-	}
-	duration *= 1000
-	duration /= int64(t.timescale)
-	img, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, os.ModePerm)
-	if err != nil {
-		return err
-	}
-	defer img.Close()
-	_, err = img.Write(append([]byte{
-		byte(((len(data) + 20) & 0xFF000000) >> 24),
-		byte(((len(data) + 20) & 0x00FF0000) >> 16),
-		byte(((len(data) + 20) & 0x0000FF00) >> 8),
-		byte(((len(data) + 20) & 0x000000FF)),
-		byte((uint64(pts) & 0xFF00000000000000) >> 56),
-		byte((pts & 0x00FF000000000000) >> 48),
-		byte((pts & 0x0000FF0000000000) >> 40),
-		byte((pts & 0x000000FF00000000) >> 32),
-		byte((pts & 0x00000000FF000000) >> 24),
-		byte((pts & 0x0000000000FF0000) >> 16),
-		byte((pts & 0x000000000000FF00) >> 8),
-		byte((pts & 0x00000000000000FF)),
-		byte((duration & 0xFF000000) >> 24),
-		byte((duration & 0x00FF0000) >> 16),
-		byte((duration & 0x0000FF00) >> 8),
-		byte((duration & 0x000000FF)),
-		'j', 'p', 'e', 'g',
-	}, data...))
-	return err
 }
 
 /* Initialise build for the track */
@@ -629,8 +585,4 @@ func (t *Track) CleanDirectory(path string) {
 			}
 		}
 	}
-}
-
-func (t *Track) IsEncrypted() bool {
-	return t.encryptInfos != nil
 }
